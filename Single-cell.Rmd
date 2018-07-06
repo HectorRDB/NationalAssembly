@@ -10,7 +10,7 @@ output:
 ```{r packages, include=F}
 library(knitr) 
 opts_chunk$set(fig.pos='!h', out.extra = '', warning=F, message=F,
-               fig.width=5, fig.align='center', echo = F)
+               fig.width = 5, fig.height = 4, fig.align='center', echo = T)
 library(cowplot)
 library(tidyverse)
 library(Biobase)
@@ -23,6 +23,7 @@ library(Biobase)
 # Loading the data and building an ExpressionSet object
 
 We store the data in an *ExpressionSet* object, where the *phenodata* is the information about the cells (the deputees) and the *featuredata* is the information about the genes (the votes).
+
 ```{r load}
 voting_record <- read_csv("data/voting_record.csv")
 meta <- voting_record %>% select(circo, dept, name, surname, identifiant,
@@ -37,4 +38,13 @@ Assay <- ExpressionSet(assayData = voting_record,
                        featureData = AnnotatedDataFrame(scrutins))
 ```
 
-# Filtering
+# Filtering the cells (deputees)
+
+```{r filtering, fig.height=3}
+Nb_Votes <- data.frame(Nb_Votes = colSums(!is.na(exprs(Assay))),
+                       deputees = rownames(phenoData(Assay)))
+ggplot(Nb_Votes, aes(x = Nb_Votes, fill = Nb_Votes <= 20)) +
+                 stat_bin(breaks = seq(0, max(Nb_Votes$Nb_Votes), 20)) +
+                 labs(x = "Number of votes") +
+                 guides(fill = guide_legend(title = "Less than 20 votes"))
+```
