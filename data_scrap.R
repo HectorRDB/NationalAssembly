@@ -108,27 +108,28 @@ res <- res %>% filter(group != 0 & group != "") %>%
 doubles <- res %>% group_by(name, surname) %>% filter(n() > 1)
 meta_double <- doubles %>% select(circo, dept, name, surname, identifiant,
                                   iden, group) %>%
-  mutate(group = factor(group,
-                        levels = c("PO645633", "PO656022",
-                                   "PO707869", "PO713077",
-                                   "PO656014", "PO656002",
-                                   "PO656006"))) %>%
-  arrange(group) %>%
-  group_by(name, surname) %>%
-  summarise(circo = mean(circo, na.rm = T),
-            dept = mean(dept, na.rm = T),
-            iden = paste(circo, dept, sep = "-"),
-            identifiant = first(identifiant),
-            group = as.character(first(group)))
+               mutate(group = factor(group,
+                                     levels = c("PO645633", "PO656022",
+                                                "PO707869", "PO713077",
+                                                "PO656014", "PO656002",
+                                                "PO656006"))) %>%
+               arrange(group) %>%
+               group_by(name, surname) %>%
+               summarise(circo = mean(circo, na.rm = T),
+                         dept = mean(dept, na.rm = T),
+                         iden = paste(circo, dept, sep = "-"),
+                         identifiant = first(identifiant),
+                         group = as.character(first(group)))
 
-cleaned <- meta_double %>% left_join(doubles %>% select(-one_of(colnames(meta_double)),
+cleaned <- meta_double %>% left_join(doubles %>%
+                                          select(-one_of(colnames(meta_double)),
                                                         -NbVote, -NbYes,
                                                         -NbNo, -NbAbst)) %>%
-  gather(key = "votes", value = "voting", 8:651) %>%
-  filter(!is.na(voting)) %>%
-  spread(key = "votes", value = "voting") %>%
-  mutate(circo = as.integer(circo),
-         dept = as.numeric(dept))
+                           gather(key = "votes", value = "voting", 8:651) %>%
+                           filter(!is.na(voting)) %>%
+                           spread(key = "votes", value = "voting") %>%
+                           mutate(circo = as.integer(circo),
+                                  dept = as.numeric(dept))
 
 res <- res %>% anti_join(doubles) %>% full_join(cleaned)
 
