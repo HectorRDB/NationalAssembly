@@ -3,8 +3,9 @@ title: "Understanding RNA-seq analysis through an example: voting behavior at th
 author: "Hector Roux de Bézieux"
 date: "May 2018"
 output:
-  pdf_document: default
+  md_document: default
   html_document: default
+  pdf_document: default
 ---
 
 ```{r packages, include=F}
@@ -78,7 +79,7 @@ Assay <- Assay[, colSums(!is.na(exprs(Assay))) > 40]
 
 In scRNA-seq settings, we want to filter out genes that are expressed in a small number of cells. This is done for two reasons. The first is computational. Most datasets would have dozens of thousands of genes, over dozens or hundreds of cells. Reducing the number of genes to keep speeds up calculations. Secondly, we are usually intersted in a specific tissue or process. Most genes are not being expressed in the samples of interest and just add noise to the analysis. Hence filtration. Simple heuristics in the form of "at least $i$ counts in $j$ cells" are usually quite efficient. The aim is too be quite broad. 
 
-In our context, we only have 644 votes so the computational goal does not really hold. But we can filter out votes where an overwehlming majority of delegates voted "yes", or voted "no. We therefore filter out votes with a low standard deviation (< 0.5). This filters out \Sexpr{round(100 *39/644)}\% of the votes. Note that in scRNA-seq settings, we would usually filter at least 50\% of the reads (while keeping more than 90\% of the reads).
+In our context, we only have 644 votes so the computational goal does not really hold. But we can filter out votes where an overwehlming majority of delegates voted "yes", or voted "no. We therefore filter out votes with a low standard deviation (< 0.5). This filters out `r round(100 *39/644, digits = 1)`\% of the votes. Note that in scRNA-seq settings, we would usually filter at least 50\% of the reads (while keeping more than 90\% of the reads).
 
 ```{r filtering genes}
 Vote_repartion <- data.frame(sd = rowSds((exprs(Assay)), na.rm = T),
