@@ -9,7 +9,7 @@ output:
 
 ```{r packages, include=F}
 library(knitr) 
-opts_chunk$set(fig.pos='!h', out.extra = '', warning=F, message=F,
+opts_chunk$set(fig.pos='!h', out.extra = '', warning = F, message = F,
                fig.width = 5, fig.height = 4, fig.align='center', echo = T)
 library(cowplot)
 library(tidyverse)
@@ -18,33 +18,44 @@ library(Biobase)
 
 # Introduction
 
+Single-cell RNA-seq (scRNA-seq) is a very potent biological tool used for many applications. A far from exhaustive list would include identifying new cell types, finding differentially expressed (DE) genes, and discovering lineages among cells. However, the usual framework might seem a little daunting for beginners and, while many well-crafted tutorials exists, they all share the same idea: use a biological dataset as an example. Here, we want to use a dataset that would be more understandable to a broader public to explain the usual steps in scRNA-seq analysis.
+
 # Context
+
+Our dataset is the voting record of the French delegates of the $14^{th}$ legislature, going from May 2012 to May 2017. Delegates are characterized by their names and surnames, their department and circonscription, their political group. For each of the 644 votes (which can be laws, amendments, choosing the prime minister, ...), we also have the voting behavior of each delegate (voted yes, no, abstain or did not took part in the vote) and the reason of the vote.
 
 # Loading the data and building an ExpressionSet object
 
-We store the data in an *ExpressionSet* object, where the *phenodata* is the information about the cells (the deputees) and the *featuredata* is the information about the genes (the votes).
+We store the data in an *ExpressionSet* object, where the *phenodata* is the information about the cells (the delegate) and the *featuredata* is the information about the genes (the votes).
 
 ```{r load}
 voting_record <- read_csv("data/voting_record.csv")
 meta <- voting_record %>% select(circo, dept, name, surname, identifiant,
-                                 iden, chamber, NbVote, NbYes, NbNo, NbAbst)
+                                 iden, group, NbVote, NbYes, NbNo, NbAbst)
 voting_record <- voting_record %>% select(-one_of(colnames(meta))) %>%
                                    t(.) 
-scrutins <- read_csv("data/scrutins.csv")
+votes <- read_csv("data/votes.csv")
 colnames(voting_record) <- rownames(meta) <- meta$identifiant
-rownames(voting_record) <- rownames(scrutins) <- scrutins$Number
+rownames(voting_record) <- rownames(votes) <- votes$Number
 Assay <- ExpressionSet(assayData = voting_record, 
                        phenoData = AnnotatedDataFrame(meta) ,
-                       featureData = AnnotatedDataFrame(scrutins))
+                       featureData = AnnotatedDataFrame(votes))
 ```
 
-# Filtering the cells (deputees)
+# Filtering the cells (delegate)
 
 ```{r filtering, fig.height=3}
 Nb_Votes <- data.frame(Nb_Votes = colSums(!is.na(exprs(Assay))),
-                       deputees = rownames(phenoData(Assay)))
+                       delegate = rownames(phenoData(Assay)))
+
 ggplot(Nb_Votes, aes(x = Nb_Votes, fill = Nb_Votes <= 20)) +
                  stat_bin(breaks = seq(0, max(Nb_Votes$Nb_Votes), 20)) +
                  labs(x = "Number of votes") +
                  guides(fill = guide_legend(title = "Less than 20 votes"))
 ```
+
+# Thanks
+
+Thanks to Vincent Viers for the initial inspiration of this project. 
+
+The code used for scraping the data is based on the blog post https://freakonometrics.hypotheses.org/50973.
