@@ -3,18 +3,18 @@ title: "Understanding RNA-seq analysis through an example: voting behavior at th
 author: "Hector Roux de Bézieux"
 date: "May 2018"
 output: 
-#   BiocStyle::html_document
-# vignette: >
-#   %\VignetteIndexEntry{Vignette Title}
-#   %\VignetteEngine{knitr::rmarkdown}
-#   %\VignetteEncoding{UTF-8}
-  github_document:
-    toc: true
+  BiocStyle::html_document
+vignette: >
+  %\VignetteIndexEntry{Vignette Title}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+  <!-- github_document: -->
+  <!--   toc: true -->
 ---
 
 ```{r packages, include=F}
 libraries <- c("knitr", "Biobase", "matrixStats", "dplyr", "tidyr", "ggplot2",
-               "readr", "clusterExperiment")
+               "readr", "clusterExperiment", "RColorBrewer")
 lapply(libraries, library, character.only = TRUE)
 opts_chunk$set(fig.pos='!h', out.extra = '', warning = F, message = F,
                fig.width = 6, fig.height = 4, fig.align='center', echo = T)
@@ -36,6 +36,7 @@ Our dataset is the voting record of the French delegates of the $14^{th}$ legisl
 The usual scRNA-seq data is a matrix of $J$ genes by $n$ cells. Each cell represent the number of copies of the mRNA of a given gene in a given cell. Here, we instead have a $J$ bills by $n$ delegates matrix. Each cell represent the vote of the delegate for that low ($-1$ if against, $1$ is for, $0$ if not voting or abstained). We store the data in an *ExpressionSet* object, where the *phenodata* is the information about the delegates (the cells) and the *featuredata* is the information about the votes (the genes).
 
 ```{r load}
+# Create the phenodata matrix
 voting_record <- read_csv("data/voting_record.csv")
 meta <- voting_record %>% select(circo, dept, name, surname, identifiant,
                                  iden, group, NbVote, NbYes, NbNo, NbAbst)
@@ -51,7 +52,7 @@ voting_record[voting_record == "NotVoting"] <- "0"
 voting_record[voting_record == "NA"] <- NA
 voting_record <- apply(voting_record, 2, as.numeric)
 
-
+# Build the ExpressionSet object
 votes <- read_csv("data/votes.csv")
 colnames(voting_record) <- rownames(meta) <- meta$identifiant
 rownames(voting_record) <- rownames(votes) <- votes$Number
@@ -71,16 +72,21 @@ We therefore filter delegates whose number of votes is more than 2 SD below the 
 Nb_Votes <- data.frame(Nb_Votes = colSums(!is.na(exprs(Assay))),
                        delegate = rownames(phenoData(Assay)))
 
-ggplot(Nb_Votes, aes(x = Nb_Votes, fill = Nb_Votes <= 40)) +
-                 stat_bin(breaks = seq(0, max(Nb_Votes$Nb_Votes), 20)) +
-                 labs(x = "Number of votes") +
-            guides(fill = guide_legend(title = "Could vote\nless than\n40 times"))
+ggplot(Nb_Votes, aes(x = Nb_Votes, fill = Nb_Votes > 40)) +
+      stat_bin(breaks = seq(0, max(Nb_Votes$Nb_Votes), 20)) +
+      labs(x = "Number of votes") +
+      guides(fill = guide_legend(title = "Could vote\nmore than\n40 times")) +
+      scale_fill_manual(values = brewer.pal(3, "Set1")[c(1, 3)],
+                        breaks = c(TRUE, FALSE))
+
+# Filter
 Assay <- Assay[, Nb_Votes$Nb_Votes > 40]
 ```
 
 We then simplify the data by replacing NAs by 0 (as abstentions). We can then check whether some delegates voted only rarely. Again, we remove people whose number of votes is more than 2 SD below the mean number of votes (so delegates who voted less than 38 votes). Among those, we of course find the president of the parliament, who does not take part in the votes. 
 
 ```{r change NA to zeros}
+# Remplace NAs by zeros
 E <- exprs(Assay)
 E[is.na(E)] <- 0
 pd <- phenoData(Assay)
@@ -89,12 +95,15 @@ colnames(E) <- rownames(pd) <- pd@data$identifiant
 rownames(E) <- rownames(fd) <- fd@data$Number
 Assay <- ExpressionSet(assayData = E, phenoData = pd, featureData = fd)
 
+# Filter
 Nb_Votes <- data.frame(Nb_Votes = colSums(exprs(Assay) != 0),
                        delegate = rownames(phenoData(Assay)))
-ggplot(Nb_Votes, aes(x = Nb_Votes, fill = Nb_Votes <= 38)) +
-                 stat_bin(breaks = seq(0, max(Nb_Votes$Nb_Votes), 19)) +
-                 labs(x = "Number of votes") +
-            guides(fill = guide_legend(title = "Actually voted\nless than\n38 times"))
+ggplot(Nb_Votes, aes(x = Nb_Votes, fill = Nb_Votes > 38)) +
+      stat_bin(breaks = seq(0, max(Nb_Votes$Nb_Votes), 19)) +
+      labs(x = "Number of votes") +
+  guides(fill = guide_legend(title = "Actually voted\nmore than\n38 times")) +
+  scale_fill_manual(values = brewer.pal(3, "Set1")[c(1, 3)],
+                        breaks = c(TRUE, FALSE))
 Assay <- Assay[, Nb_Votes$Nb_Votes > 38]
 ```
 
@@ -105,6 +114,7 @@ In scRNA-seq settings, we want to filter out genes that are expressed in a small
 In our context, we only have 644 votes so the computational goal does not really hold. But we can filter out votes where many delegates did not vote. Those are probably non-political technical votes. We therefore use the filter rules "at least X delegates cast a vote on the bill".
 
 ```{r filtering genes}
+# Compute the number of votes and number of vote casted as a function of X
 Nb_Votes <- rowSums(exprs(Assay) != 0)
 voting_behavior <- data.frame(n_votes_cast = rep(0, nrow(Assay)),
                              n_votes = rep(0, nrow(Assay)),
@@ -136,6 +146,7 @@ ggplot(voting_behavior,
 We can see a clear inflexion point in the curve, that we pick as the final cutoff value. Our final filtering rule for bills (genes) is "At least 130 delegates cast at vote."
 
 ```{r}
+# Filter
 Assay <- Assay[rowSums(exprs(Assay) != 0) >= 130, ]
 ```
 
@@ -154,27 +165,35 @@ In our example, let us imagine for a moment that we do not know the political gr
 ## Clustering
 
 ```{r clustering}
-pca <- prcomp(t(exprs(Assay)))
+# Build the object
 se <- SummarizedExperiment(assays = exprs(Assay))
+
+# Run all clustering methods
 ce <- clusterMany(x = se, k = seq(5, 50, 5),
                   clusterFunction = c("pam", "hierarchicalK"),
                   reduceMethod = c("PCA"), 
                   ks = 2:20, minSizes = 5,
                   run=TRUE, transFun = function(x){x})
-# plotClusters(ce, whichClusters = "all")
+# Find stable clusters
 ce <- combineMany(ce, minSize = 15, proportion = 0.6,
                   clusterLabel = "combineMany")
 
-
+# Merge clusters
 ce <- makeDendrogram(ce)
-# plotDendrogram(ce)
 ce <- mergeClusters(ce, mergeMethod="adjP", plotInfo = "adjP",
                   cutoff = 0.35, clusterLabel = "Clusters", plot = F)
-# plotCoClustering(ce, whichClusters = c("Clusters"))
+
+# Plot clusters
+pca <- prcomp(t(exprs(Assay)))
 Clusters <- data.frame(clusters = ce@clusterMatrix[,1],
                        x = pca$x[,1], y = pca$x[,2],
                        group = phenoData(Assay)@data$group)
-ggplot(Clusters, aes(x = x, y = y, col = factor(clusters))) + geom_point()
+ggplot(Clusters, aes(x = x, y = y, col = factor(clusters))) +
+  geom_point() +
+  labs(col = "Clusters") +
+  scale_color_manual(values = brewer.pal(6, "Set2"),
+                    breaks = -1:5) +
+  NULL
 ```
 
 # R session
