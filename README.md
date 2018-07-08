@@ -11,6 +11,8 @@ May 2018
     -   [Filtering the genes (votes)](#filtering-the-genes-votes)
 -   [Normalization and correcting for zero inflation](#normalization-and-correcting-for-zero-inflation)
 -   [Recovering / discovering biological types](#recovering-discovering-biological-types)
+    -   [Clustering](#clustering)
+-   [R session](#r-session)
 -   [Thanks](#thanks)
 
 Introduction
@@ -113,7 +115,7 @@ In our context, we only have 644 votes so the computational goal does not really
 
 ``` r
 Nb_Votes <- rowSums(exprs(Assay) != 0)
-voting_behavior<- data.frame(n_votes_cast = rep(0, nrow(Assay)),
+voting_behavior <- data.frame(n_votes_cast = rep(0, nrow(Assay)),
                              n_votes = rep(0, nrow(Assay)),
                              X = 1:nrow(Assay))
 for(X in 1:nrow(Assay)){
@@ -142,7 +144,11 @@ ggplot(voting_behavior,
 
 <img src="Single-cell_files/figure-markdown_github/filtering genes-1.png"  style="display: block; margin: auto;" />
 
-We can see a clear inflexion point in the curve, that we pick as the final cutoff value.
+We can see a clear inflexion point in the curve, that we pick as the final cutoff value. Our final filtering rule for bills (genes) is "At least 130 delegates cast at vote."
+
+``` r
+Assay <- Assay[rowSums(exprs(Assay) != 0) >= 130, ]
+```
 
 Normalization and correcting for zero inflation
 ===============================================
@@ -152,17 +158,103 @@ Recovering / discovering biological types
 
 In most scRNA-seq settings, we have no information about the biological type. We therefore want to cluster the cells and then use marker genes to identify known-cell types. Alternatively, we can use clustering to discover new cell types and identify marker genes for those new types.
 
-In our example, let us imagine for a moment that we do not know the political group to which each delegate belong. Can we recover those groups? This will be done in two steps: discover stable clusters of delegates (cells) then identify vote (genes) that help distinguish those clusters. \#\# Clustering
+In our example, let us imagine for a moment that we do not know the political group to which each delegate belong. Can we recover those groups? This will be done in two steps: discover stable clusters of delegates (cells) then identify vote (genes) that help distinguish those clusters.
+
+Clustering
+----------
 
 ``` r
-pca <- prcomp(t(exprs(Assay)), center = T, scale = T)
-ggplot(data.frame(x = pca$x[,1], y = pca$x[,2], col = phenoData(Assay)@data$group),
-       aes(x = x, fill = col)) +
-  facet_wrap(col~.) + 
-  geom_density()
+pca <- prcomp(t(exprs(Assay)))
+se <- SummarizedExperiment(assays = exprs(Assay))
+ce <- clusterMany(x = se, k = seq(5, 50, 5),
+                  clusterFunction = c("pam", "hierarchicalK"),
+                  reduceMethod = c("PCA"), 
+                  ks = 2:20, minSizes = 5,
+                  run=TRUE, transFun = function(x){x})
+# plotClusters(ce, whichClusters = "all")
+ce <- combineMany(ce, minSize = 15, proportion = 0.6,
+                  clusterLabel = "combineMany")
+
+
+ce <- makeDendrogram(ce)
+# plotDendrogram(ce)
+ce <- mergeClusters(ce, mergeMethod="adjP", plotInfo = "adjP",
+                  cutoff = 0.35, clusterLabel = "Clusters", plot = F)
+# plotCoClustering(ce, whichClusters = c("Clusters"))
+Clusters <- data.frame(clusters = ce@clusterMatrix[,1],
+                       x = pca$x[,1], y = pca$x[,2],
+                       group = phenoData(Assay)@data$group)
+ggplot(Clusters, aes(x = x, y = y, col = factor(clusters))) + geom_point()
 ```
 
 <img src="Single-cell_files/figure-markdown_github/clustering-1.png"  style="display: block; margin: auto;" />
+
+R session
+=========
+
+``` r
+sessionInfo()
+```
+
+    ## R version 3.5.0 (2018-04-23)
+    ## Platform: x86_64-apple-darwin15.6.0 (64-bit)
+    ## Running under: macOS High Sierra 10.13.5
+    ## 
+    ## Matrix products: default
+    ## BLAS: /Library/Frameworks/R.framework/Versions/3.5/Resources/lib/libRblas.0.dylib
+    ## LAPACK: /Library/Frameworks/R.framework/Versions/3.5/Resources/lib/libRlapack.dylib
+    ## 
+    ## locale:
+    ## [1] en_US.UTF-8/en_US.UTF-8/en_US.UTF-8/C/en_US.UTF-8/en_US.UTF-8
+    ## 
+    ## attached base packages:
+    ## [1] stats4    parallel  stats     graphics  grDevices utils     datasets 
+    ## [8] methods   base     
+    ## 
+    ## other attached packages:
+    ##  [1] bindrcpp_0.2.2              clusterExperiment_2.0.2    
+    ##  [3] SingleCellExperiment_1.2.0  SummarizedExperiment_1.10.1
+    ##  [5] DelayedArray_0.6.0          BiocParallel_1.14.1        
+    ##  [7] GenomicRanges_1.32.3        GenomeInfoDb_1.16.0        
+    ##  [9] IRanges_2.14.10             S4Vectors_0.18.3           
+    ## [11] readr_1.1.1                 ggplot2_3.0.0              
+    ## [13] tidyr_0.8.1                 dplyr_0.7.6                
+    ## [15] matrixStats_0.53.1          Biobase_2.40.0             
+    ## [17] BiocGenerics_0.26.0         knitr_1.20                 
+    ## 
+    ## loaded via a namespace (and not attached):
+    ##  [1] nlme_3.1-137           bitops_1.0-6           progress_1.2.0        
+    ##  [4] httr_1.3.1             doParallel_1.0.11      RColorBrewer_1.1-2    
+    ##  [7] rprojroot_1.3-2        prabclus_2.2-6         tools_3.5.0           
+    ## [10] backports_1.1.2        R6_2.2.2               HDF5Array_1.8.0       
+    ## [13] lazyeval_0.2.1         colorspace_1.3-2       ade4_1.7-11           
+    ## [16] trimcluster_0.1-2      nnet_7.3-12            withr_2.1.2           
+    ## [19] prettyunits_1.0.2      tidyselect_0.2.4       gridExtra_2.3         
+    ## [22] compiler_3.5.0         xml2_1.2.0             pkgmaker_0.27         
+    ## [25] labeling_0.3           diptest_0.75-7         scales_0.5.0          
+    ## [28] DEoptimR_1.0-8         mvtnorm_1.0-8          robustbase_0.93-1     
+    ## [31] NMF_0.21.0             stringr_1.3.1          digest_0.6.15         
+    ## [34] rmarkdown_1.10         XVector_0.20.0         pkgconfig_2.0.1       
+    ## [37] htmltools_0.3.6        bibtex_0.4.2           limma_3.36.1          
+    ## [40] rlang_0.2.1            howmany_0.3-1          bindr_0.1.1           
+    ## [43] mclust_5.4.1           dendextend_1.8.0       RCurl_1.95-4.10       
+    ## [46] magrittr_1.5           modeltools_0.2-21      GenomeInfoDbData_1.1.0
+    ## [49] Matrix_1.2-14          Rhdf5lib_1.2.1         Rcpp_0.12.17          
+    ## [52] munsell_0.5.0          ape_5.1                viridis_0.5.1         
+    ## [55] stringi_1.2.3          whisker_0.3-2          yaml_2.1.19           
+    ## [58] MASS_7.3-50            zlibbioc_1.26.0        rhdf5_2.24.0          
+    ## [61] flexmix_2.3-14         plyr_1.8.4             grid_3.5.0            
+    ## [64] crayon_1.3.4           rncl_0.8.2             lattice_0.20-35       
+    ## [67] splines_3.5.0          hms_0.4.2              pillar_1.2.3          
+    ## [70] uuid_0.1-2             fpc_2.1-11             rngtools_1.3.1        
+    ## [73] reshape2_1.4.3         codetools_0.2-15       XML_3.98-1.11         
+    ## [76] glue_1.2.0             evaluate_0.10.1        RNeXML_2.1.1          
+    ## [79] data.table_1.11.4      foreach_1.4.4          locfdr_1.1-8          
+    ## [82] gtable_0.2.0           purrr_0.2.5            kernlab_0.9-26        
+    ## [85] assertthat_0.2.0       gridBase_0.4-7         phylobase_0.8.4       
+    ## [88] xtable_1.8-2           RSpectra_0.13-1        class_7.3-14          
+    ## [91] viridisLite_0.3.0      tibble_1.4.2           iterators_1.0.9       
+    ## [94] registry_0.5           cluster_2.0.7-1
 
 Thanks
 ======
