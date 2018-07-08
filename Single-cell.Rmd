@@ -3,13 +3,13 @@ title: "Understanding RNA-seq analysis through an example: voting behavior at th
 author: "Hector Roux de Bézieux"
 date: "May 2018"
 output: 
-  BiocStyle::html_document
-vignette: >
-  %\VignetteIndexEntry{Vignette Title}
-  %\VignetteEngine{knitr::rmarkdown}
-  %\VignetteEncoding{UTF-8}
-  <!-- github_document: -->
-  <!--   toc: true -->
+#   BiocStyle::html_document
+# vignette: >
+#   %\VignetteIndexEntry{Vignette Title}
+#   %\VignetteEngine{knitr::rmarkdown}
+#   %\VignetteEncoding{UTF-8}
+  github_document:
+    toc: true
 ---
 
 ```{r packages, include=F}
