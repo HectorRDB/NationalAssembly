@@ -141,10 +141,11 @@ groupnames[groupnames == "PO656014"] <- "Non-aligned"
 groupnames[groupnames == "PO656018"] <- "GDR"
 groupnames[groupnames == "PO713077"] <- "SER"
 groupnames[groupnames == "PO707869"] <- "LR"
-groupnames[groupnames == "PO707869"] <- "LR"
 groupnames[groupnames == "PO656002"] <- "Gvt"
-groupnames[groupnames == "PO656006"] <- "RRPD"
-res$group <- groupnames
+groupnames[groupnames == "PO656006"] <- "LR"
+groupnames[groupnames == "PO656022"] <- "RRPD"
+res$group <- factor(groupnames, levels = c("GDR", "SER", "Gvt", "RRPD", "UDI",
+                                           "LR", "Non-aligned"))
 
 write_csv(res, path = "data/voting_record.csv")
 write_csv(votes, path = "data/votes.csv")
