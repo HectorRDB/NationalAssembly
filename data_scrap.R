@@ -1,6 +1,6 @@
 library(xml2)
-library(downloader)
 library(tidyverse)
+library(downloader)
 
 # Get the list of all delegate ----
 
@@ -71,7 +71,7 @@ for (vote in liste){
             indices <- res$identifiant %in% deps
             indices_temp <- temp$identifiant %in% deps
             res[indices, "group"] <- as.character(groupname)
-            
+
             if(i != 1){
               res[indices, "NbVote"] <- res[indices, ]$NbVote + 1
             }
@@ -141,11 +141,10 @@ groupnames[groupnames == "PO656014"] <- "Non-aligned"
 groupnames[groupnames == "PO656018"] <- "GDR"
 groupnames[groupnames == "PO713077"] <- "SER"
 groupnames[groupnames == "PO707869"] <- "LR"
+groupnames[groupnames == "PO707869"] <- "LR"
 groupnames[groupnames == "PO656002"] <- "Gvt"
-groupnames[groupnames == "PO656006"] <- "LR"
-groupnames[groupnames == "PO656022"] <- "RRPD"
-res$group <- factor(groupnames, levels = c("GDR", "SER", "Gvt", "RRPD", "UDI",
-                                           "LR", "Non-aligned"))
+groupnames[groupnames == "PO656006"] <- "RRPD"
+res$group <- groupnames
 
 write_csv(res, path = "data/voting_record.csv")
 write_csv(votes, path = "data/votes.csv")
