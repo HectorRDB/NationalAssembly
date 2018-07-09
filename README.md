@@ -12,13 +12,14 @@ May 2018
 -   [Normalization and correcting for zero inflation](#normalization-and-correcting-for-zero-inflation)
 -   [Recovering / discovering biological types](#recovering-discovering-biological-types)
     -   [Clustering](#clustering)
+    -   [Finding differentially expressed genes](#finding-differentially-expressed-genes)
 -   [R session](#r-session)
 -   [Thanks](#thanks)
 
 Introduction
 ============
 
-Single-cell RNA-seq (scRNA-seq) is a very potent biological tool used for many applications. A far from exhaustive list would include identifying new cell types, finding differentially expressed (DE) genes, and discovering lineages among cells. However, the usual framework might seem a little daunting for beginners and, while many well-crafted tutorials exists, they all share the same idea: use a biological dataset as an example. Here, we want to use a dataset that would be more understandable to a broader public to explain the usual steps in scRNA-seq analysis.
+Single-cell RNA-seq (scRNA-seq) is a very potent biological tool used for many applications. A far from exhaustive list would include identifying new cell types, finding differentially expressed (DE) genes, and discovering lineages among cells. However, the usual framework might seem a little daunting for beginners and, while many well-crafted tutorials exists, they all share the same idea: use a biological dataset as an example. Here, we want to use a dataset that would be more understandable to a broader public to explain the usual steps in scRNA-seq analysis. Only some basics on data analysis are needed to understand this tutorial. Knowledge of R helps to understand the code but is not necessary to follow along.
 
 Context
 =======
@@ -28,7 +29,9 @@ Our dataset is the voting record of the French delegates of the 14<sup>*t**h*</s
 Loading the data and building an ExpressionSet object
 =====================================================
 
-The usual scRNA-seq data is a matrix of *J* genes by *n* cells. Each cell represent the number of copies of the mRNA of a given gene in a given cell. Here, we instead have a *J* bills by *n* delegates matrix. Each cell represent the vote of the delegate for that low (−1 if against, 1 is for, 0 if not voting or abstained). We store the data in an *ExpressionSet* object, where the *phenodata* is the information about the delegates (the cells) and the *featuredata* is the information about the votes (the genes).
+The usual scRNA-seq data is a matrix of *J* genes by *n* biological cells. Each cell of the matrix represents the number of copies of messenger RNA of a given gene in a given biological cell.This number serves as a proxy for the number of proteins from this mRNA and therefore represent how active a gene is in a given cell. We also eventually have some information about cells
+
+Here, we instead have a *J* bills by *n* delegates matrix. Each cell represent the vote of the delegate for that low (−1 if against, 1 is for, 0 if not voting or abstained). We store the data in an *ExpressionSet* object, where the *phenodata* is the information about the delegates (the cells) and the *featuredata* is the information about the votes (the genes).
 
 ``` r
 # Create the phenodata matrix
@@ -62,7 +65,7 @@ Data Cleaning
 Filtering the cells (delegate)
 ------------------------------
 
-In scRNA-seq settings, we want to filter the cells with too few total reads, or reads of too poor quality (that do not match to the genome of reference). Here, we instead filter the delegates with too few votes. This may happen either because a delegate had to leave office before the end of the session, or was appointed to the government, and then its replacement is not around long enough.
+In scRNA-seq settings, we want to filter the cells with too few total reads, or with too many reads of poor quality (that do not match to the genome of reference). Here, we instead filter the delegates with too few voting possibilities. This may happen either because a delegate had to leave office before the end of the session, or was appointed to the government, and then its replacement is not around long enough.
 
 We therefore filter delegates whose number of votes is more than 2 SD below the mean (so equal or less to 40).
 
@@ -75,7 +78,8 @@ ggplot(Nb_Votes, aes(x = Nb_Votes, fill = Nb_Votes > 40)) +
       labs(x = "Number of votes") +
       guides(fill = guide_legend(title = "Could vote\nmore than\n40 times")) +
       scale_fill_manual(values = brewer.pal(3, "Set1")[c(1, 3)],
-                        breaks = c(TRUE, FALSE))
+                        breaks = c(TRUE, FALSE)) +
+  theme_classic()
 ```
 
 <img src="Single-cell_files/figure-markdown_github/filtering cells-1.png"  style="display: block; margin: auto;" />
@@ -85,7 +89,7 @@ ggplot(Nb_Votes, aes(x = Nb_Votes, fill = Nb_Votes > 40)) +
 Assay <- Assay[, Nb_Votes$Nb_Votes > 40]
 ```
 
-We then simplify the data by replacing NAs by 0 (as abstentions). We can then check whether some delegates voted only rarely. Again, we remove people whose number of votes is more than 2 SD below the mean number of votes (so delegates who voted less than 38 votes). Among those, we of course find the president of the parliament, who does not take part in the votes.
+We then simplify the data by replacing NAs by 0 (as abstentions). We can then check whether some delegates rarely voted. Again, we remove people whose number of votes is more than 2 SD below the mean number of votes (so delegates who actually voted less than 38 votes). Among those, we of course find the president of the parliament, who does not take part in the votes and therefore never voted.
 
 ``` r
 # Remplace NAs by zeros
@@ -105,7 +109,8 @@ ggplot(Nb_Votes, aes(x = Nb_Votes, fill = Nb_Votes > 38)) +
       labs(x = "Number of votes") +
   guides(fill = guide_legend(title = "Actually voted\nmore than\n38 times")) +
   scale_fill_manual(values = brewer.pal(3, "Set1")[c(1, 3)],
-                        breaks = c(TRUE, FALSE))
+                        breaks = c(TRUE, FALSE)) +
+  theme_classic()
 ```
 
 <img src="Single-cell_files/figure-markdown_github/change NA to zeros-1.png"  style="display: block; margin: auto;" />
@@ -117,34 +122,34 @@ Assay <- Assay[, Nb_Votes$Nb_Votes > 38]
 Filtering the genes (votes)
 ---------------------------
 
-In scRNA-seq settings, we want to filter out genes that are expressed in a small number of cells. This is done for two reasons. The first is computational. Most datasets would have dozens of thousands of genes, over dozens or hundreds of cells. Reducing the number of genes to keep speeds up calculations. Secondly, we are usually interested in a specific tissue or process. Most genes are not being expressed in the samples of interest and just add noise to the analysis. Hence filtration. Simple heuristics in the form of "at least *i* counts in *j* cells" are usually quite efficient. The aim is too be quite broad. We want to filter as many genes as possible while retaining most of the reads. In usual settings, you would only keep ~20% of the genes at most but that would still capture more than 90% of the reads.
+In scRNA-seq settings, we want to filter out genes that are expressed in a small number of cells. This is done for two reasons. The first is computational. Most datasets would have dozens of thousands of genes, over dozens or hundreds of cells. Reducing the number of genes helps speed up calculations. Secondly, we are usually interested in a specific tissue or process. Most genes are not being expressed in the samples of interest and just add noise to the analysis. Hence filtration. Simple heuristics in the form of "at least *i* counts in *j* cells" are usually quite efficient. The aim is too be quite broad. We want to filter as many genes as possible while retaining most of the reads. In usual settings, you would only keep ~20% of the genes at most but that would still capture more than 90% of the reads.
 
-In our context, we only have 644 votes so the computational goal does not really hold. But we can filter out votes where many delegates did not vote. Those are probably non-political technical votes. We therefore use the filter rules "at least X delegates cast a vote on the bill".
+In our context, we only have 644 votes so the computational goal does not really hold. But we can filter out votes where many delegates did not vote. Those are probably non-political technical votes. We therefore use the filter rules "at least *j* delegates cast a vote on the bill".
 
 ``` r
-# Compute the number of votes and number of vote casted as a function of X
+# Compute the number of votes and number of vote casted as a function of j
 Nb_Votes <- rowSums(exprs(Assay) != 0)
 voting_behavior <- data.frame(n_votes_cast = rep(0, nrow(Assay)),
                              n_votes = rep(0, nrow(Assay)),
-                             X = 1:nrow(Assay))
-for(X in 1:nrow(Assay)){
-  Nb_Votes <- Nb_Votes[Nb_Votes >= X]
-  voting_behavior$n_votes[X] <- length(Nb_Votes)
-  voting_behavior$n_votes_cast[X] <- sum(Nb_Votes)
+                             j = 1:nrow(Assay))
+for(j in 1:nrow(Assay)){
+  Nb_Votes <- Nb_Votes[Nb_Votes >= j]
+  voting_behavior$n_votes[j] <- length(Nb_Votes)
+  voting_behavior$n_votes_cast[j] <- sum(Nb_Votes)
 }
 
 ggplot(voting_behavior,
-       aes(x = n_votes, y = n_votes_cast, col = X)) +
-  geom_point() +
+       aes(x = n_votes, y = n_votes_cast, col = j)) +
+  geom_point() + theme_classic() + 
   labs(x = "Number of bills kept",
        y = "Number of votes kept",
        col = "Cutoff value") +
-  geom_point(col = "red", data = voting_behavior %>% filter(X == 130)) +
+  geom_point(col = "red", data = voting_behavior %>% filter(j == 130)) +
   geom_label(label = "Final\nCutoff",
-            data = voting_behavior %>% filter(X == 130),
+            data = voting_behavior %>% filter(j == 130),
             nudge_x = -120, nudge_y = 1E4,
             col = "black") +
-  geom_curve(data = voting_behavior %>% filter(X == 130), curvature = 0,
+  geom_curve(data = voting_behavior %>% filter(j == 130), curvature = 0,
             aes(x = n_votes -70, xend = n_votes,
                 y = n_votes_cast + 1E4, yend = n_votes_cast),
             col = "black",
@@ -163,6 +168,12 @@ Assay <- Assay[rowSums(exprs(Assay) != 0) >= 130, ]
 Normalization and correcting for zero inflation
 ===============================================
 
+In scRNA-seq settings, after filtering comes a normalization step. scRNA-sequencing has a lot of technical issues and this technical noise can be stronger than any biological signal. Normalization tries to adjust for this. Here, we have no technical noise so we do not need to adjust for it.
+
+This is also the time to adjust for dropouts. Indeed, because of technical difficulties, some genes may seem non-expressed (i.e their count is zero) while they in fact are. Zero-inflation methods try to adjust for that by categorizing the zeros into real and dropouts and, in the case of dropouts, try to input the missing values.
+
+To better understand dropouts, let us go back to our example. In our voting record matrix, zeros represent abstention (i.e real zeros) and not being able to votes (i.e dropouts, we do not know what the delegate would have done if he could have voted). Adjusting for dropouts means identifying which zeros are true zeros (true abstentions) and then, for dropouts, estimating the real value. Since the technique that would be used to correct for dropouts in our political example would be different to biostatistical techniques used in scRNA-seq settings, we will not cover it here.
+
 Recovering / discovering biological types
 =========================================
 
@@ -172,6 +183,8 @@ In our example, let us imagine for a moment that we do not know the political gr
 
 Clustering
 ----------
+
+We use a broad clustering framework based on the *ClusterExperiment* package, that test many clustering algorithms and use all the results to find stable clusters. As a result, some cells (delegates) are left unclustered.
 
 ``` r
 # Build the object
@@ -184,28 +197,97 @@ ce <- clusterMany(x = se, k = seq(5, 50, 5),
                   ks = 2:20, minSizes = 5,
                   run=TRUE, transFun = function(x){x})
 # Find stable clusters
-ce <- combineMany(ce, minSize = 15, proportion = 0.6,
+ce <- combineMany(ce, minSize = 12, proportion = 0.6,
                   clusterLabel = "combineMany")
 
 # Merge clusters
 ce <- makeDendrogram(ce)
 ce <- mergeClusters(ce, mergeMethod="adjP", plotInfo = "adjP",
-                  cutoff = 0.35, clusterLabel = "Clusters", plot = F)
+                  cutoff = 0.35, clusterLabel = "Clusters", plot = T)
+```
 
+<img src="Single-cell_files/figure-markdown_github/clustering-1.png"  style="display: block; margin: auto;" />
+
+After running the algorithm, we find 6 clusters that we can visualize on the first 2 principal components.
+
+``` r
 # Plot clusters
 pca <- prcomp(t(exprs(Assay)))
 Clusters <- data.frame(clusters = ce@clusterMatrix[,1],
                        x = pca$x[,1], y = pca$x[,2],
                        group = phenoData(Assay)@data$group)
 ggplot(Clusters, aes(x = x, y = y, col = factor(clusters))) +
-  geom_point() +
-  labs(col = "Clusters") +
-  scale_color_manual(values = brewer.pal(6, "Set2"),
-                    breaks = -1:5) +
-  NULL
+  geom_point(size = 2, alpha = 0.7) +
+  labs(col = "Clusters", x = "PC1", y = "PC2") +
+  scale_color_manual(values = brewer.pal(7, "Set2"),
+                    breaks = c(-1, 1:6),
+                    labels = c("Unclustered", paste("Cluster", 1:6))) +
+  theme_classic() + 
+  theme(legend.title = element_text(hjust = 0.7))
 ```
 
-<img src="Single-cell_files/figure-markdown_github/clustering-1.png"  style="display: block; margin: auto;" />
+<img src="Single-cell_files/figure-markdown_github/plot-1.png"  style="display: block; margin: auto;" />
+
+We can see how those clusters compare with the actual political groups
+
+``` r
+ggplot(Clusters, aes(x = x, y = y,
+       col = factor(group, levels = c("Non-aligned", "LR", "SER", "GDR",
+                                      "RRPD", "Gvt", "UDI")))) +
+  geom_point(size = 2, alpha = 0.7) +
+  labs(col = "Clusters", x = "PC1", y = "PC2") +
+  scale_color_manual(values = brewer.pal(7, "Set2")) +
+  theme_classic() + 
+  theme(legend.title = element_text(hjust = 0.7))
+```
+
+<img src="Single-cell_files/figure-markdown_github/plot groups-1.png"  style="display: block; margin: auto;" />
+
+We can see that we correctly identified 5 main groups: SER (left, governing party) and Gvt, i.e delegates that where called in government as some point, as well as the two main opposition parties, LR (right) and UDI (center-right). The far left party GDR is also correclty identify. However, we cannot identify the RRPD (center-left), which was part of the governing coalition. Moreover, we identify a new group (cluster 4) among the SER. We will later look at which votes distinguish this cluster from the main SER one.
+
+Finding differentially expressed genes
+--------------------------------------
+
+We can now look at the votes and ask: which votes set a given group appart from the others? This can be done in two ways. Either looking at the clusters we found to try and identify them, or look at clusters we know and find the votes that separate them. In the first case, we care about the naming the clusters, in the other about finding bills that create a lot of political differentiation.
+
+In scRNA-seq settings, the first case would be looking at clusters and use known-marker genes to identify them. The other case would be identifying knwon-marker genes, or finding DE genes between treatment and control, or many other possible scenario.
+
+In this example, we will look at the second case: which votes distinguish political groups? We can see it in two regards in our example. What votes distinguish each group from the governing coalitions (SER-RRPD, Gvt)? What votes distinguish each group from all others?
+
+``` r
+groups <- phenoData(Assay)$group
+groups[groups %in%  c("SER", "Gvt", "RRPD")] <- "Gov"
+groups <- as.numeric(factor(groups), levels = c("Non-aligned", "LR", "UDI",
+                                                "GRD", "GOV"))
+
+contrasts <- getBestFeatures(exprs(Assay), groups,
+                             contrastType = "Pairs",
+                             number = Inf) %>%
+             filter(str_detect(Contrast, "-Cl05")) %>%
+             group_by(Contrast) %>%
+             arrange(P.Value) %>%
+             top_n(5, P.Value) %>%
+             select(Contrast, Feature) %>%
+             mutate(Feature = as.numeric(Feature)) %>%
+             left_join(Assay@featureData@data,
+                       by = c("Feature" = "Number")) %>%
+  select(-Feature) %>%
+  group_by(Contrast) %>%
+  mutate(groupid = row_number()) %>%
+  spread(Contrast, Title) %>%
+  select(-groupid)
+kable(contrasts)
+```
+
+| Cl01-Cl05                                                                                                                                                                              | Cl02-Cl05                                                                                                                                                                                    | Cl03-Cl05                                                                                                                                                                                           | Cl04-Cl05                                                                                                                                                                                                           |
+|:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| l'amendement n° 207 de M. Faure à l'article 2 du projet de loi constitutionnelle de protection de la Nation (première lecture).                                                        | la déclaration du Gouvernement, en application de l'article 35, alinéa 3, de la Constitution, sur l'autorisation de la prolongation de l'intervention des forces françaises en Centrafrique. | l'ensemble du projet de loi de finances pour 2015 (nouvelle lecture)                                                                                                                                | l'ensemble du projet de loi relatif à la délimitation des régions, aux élections régionales et départementales et modifiant le calendrier électoral (lecture définitive).                                           |
+| la motion de rejet préalable, présentée par M. Christian Jacob, du projet de loi, adopté par le Sénat, portant nouvelle organisation territoriale de la République (première lecture). | le projet de loi relatif à la sécurisation de l'emploi (texte de la CMP)                                                                                                                     | l'ensemble du projet de loi renforçant la lutte contre le crime organisé, le terrorisme et leur financement, et améliorant l'efficacité et les garanties de la procédure pénale (première lecture). | la motion de renvoi en commission, déposée par M. Christian Jacob, du projet de loi visant à instituer de nouvelles libertés et de nouvelles protections pour les entreprises et les actif-v-es (première lecture). |
+| l'ensemble du projet de loi relatif à la transparence, à la lutte contre la corruption et à la modernisation de la vie économique (première lecture)                                   | l'amendement n° 32 de M. Ciotti après l'article 2 du projet de loi prorogeant l'application de la loi n° 55-385 du 3 avril 1955 relative à l'état d'urgence (première lecture)               | l'ensemble de l'article premier du projet de loi constitutionnelle de protection de la Nation (seconde délibération) (première lecture).                                                            | l'article 4 ter du projet de loi relatif à la santé (nouvelle lecture).                                                                                                                                             |
+| l'ensemble de la proposition de loi organique relative à la compétence du Défenseur des droits pour la protection des lanceurs d'alerte (première lecture)                             | la Déclaration du Gouvernement, en application de l'article 35, alinéa 3, de la Constitution, sur l'autorisation de la prolongation de l'intervention des forces armées en Irak.             | l'amendement n° 1 du Gouvernement à l'article premier du projet de loi constitutionnelle de protection de la Nation (seconde délibération) (première lecture).                                      | l'ensemble du projet de loi relatif à la sécurisation de l'emploi (première lecture).                                                                                                                               |
+| l'ensemble du projet de loi relatif à la transparence, à la lutte contre la corruption et à la modernisation de la vie économique (lecture définitive)                                 | le projet de loi de modernisation, de développement et de protection des territoires de montagne (première lecture).                                                                         | la motion de censure déposée en application de l'article 49, alinéa 3, de la Constitution par M. Christian Jacob, M. Philippe Vigier et 146 membres de l'Assemblée.                                 | la motion de renvoi en commission pour le projet de loi relatif à la délimitation des régions, aux élections régionales et départementales et modifiant le calendrier électoral                                     |
+
+Most of them are either budget-related laws or motion of censoring for the government, i.e big political laws. So, if cluster 1 voted for those laws, it's an opposition party, otherwise it's a governing party.
 
 R session
 =========
@@ -230,16 +312,16 @@ sessionInfo()
     ## [8] methods   base     
     ## 
     ## other attached packages:
-    ##  [1] bindrcpp_0.2.2              RColorBrewer_1.1-2         
-    ##  [3] clusterExperiment_2.0.2     SingleCellExperiment_1.2.0 
-    ##  [5] SummarizedExperiment_1.10.1 DelayedArray_0.6.0         
-    ##  [7] BiocParallel_1.14.1         GenomicRanges_1.32.3       
-    ##  [9] GenomeInfoDb_1.16.0         IRanges_2.14.10            
-    ## [11] S4Vectors_0.18.3            readr_1.1.1                
-    ## [13] ggplot2_3.0.0               tidyr_0.8.1                
-    ## [15] dplyr_0.7.6                 matrixStats_0.53.1         
-    ## [17] Biobase_2.40.0              BiocGenerics_0.26.0        
-    ## [19] knitr_1.20                 
+    ##  [1] bindrcpp_0.2.2              stringr_1.3.1              
+    ##  [3] RColorBrewer_1.1-2          clusterExperiment_2.0.2    
+    ##  [5] SingleCellExperiment_1.2.0  SummarizedExperiment_1.10.1
+    ##  [7] DelayedArray_0.6.0          BiocParallel_1.14.1        
+    ##  [9] GenomicRanges_1.32.3        GenomeInfoDb_1.16.0        
+    ## [11] IRanges_2.14.10             S4Vectors_0.18.3           
+    ## [13] readr_1.1.1                 ggplot2_3.0.0              
+    ## [15] tidyr_0.8.1                 dplyr_0.7.6                
+    ## [17] matrixStats_0.53.1          Biobase_2.40.0             
+    ## [19] BiocGenerics_0.26.0         knitr_1.20                 
     ## 
     ## loaded via a namespace (and not attached):
     ##  [1] nlme_3.1-137           bitops_1.0-6           progress_1.2.0        
@@ -252,9 +334,9 @@ sessionInfo()
     ## [22] xml2_1.2.0             pkgmaker_0.27          labeling_0.3          
     ## [25] diptest_0.75-7         scales_0.5.0           DEoptimR_1.0-8        
     ## [28] mvtnorm_1.0-8          robustbase_0.93-1      NMF_0.21.0            
-    ## [31] stringr_1.3.1          digest_0.6.15          rmarkdown_1.10        
-    ## [34] XVector_0.20.0         pkgconfig_2.0.1        htmltools_0.3.6       
-    ## [37] bibtex_0.4.2           limma_3.36.1           rlang_0.2.1           
+    ## [31] digest_0.6.15          rmarkdown_1.10         XVector_0.20.0        
+    ## [34] pkgconfig_2.0.1        htmltools_0.3.6        bibtex_0.4.2          
+    ## [37] highr_0.7              limma_3.36.1           rlang_0.2.1           
     ## [40] howmany_0.3-1          bindr_0.1.1            mclust_5.4.1          
     ## [43] dendextend_1.8.0       RCurl_1.95-4.10        magrittr_1.5          
     ## [46] modeltools_0.2-21      GenomeInfoDbData_1.1.0 Matrix_1.2-14         
