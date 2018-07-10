@@ -1,6 +1,6 @@
 library(xml2)
-library(tidyverse)
 library(downloader)
+library(tidyverse)
 
 # Get the list of all delegate ----
 
@@ -70,7 +70,9 @@ for (vote in liste){
             }
             indices <- res$identifiant %in% deps
             indices_temp <- temp$identifiant %in% deps
-            res[indices, "group"] <- as.character(groupname)
+            res[indices, "group"] <- paste(res[indices, "group"],
+                                           as.character(groupname),
+                                           sep = ",")
 
             if(i != 1){
               res[indices, "NbVote"] <- res[indices, ]$NbVote + 1
@@ -101,50 +103,67 @@ votes <- votes[-1, ]
 rm(temp, ventil, groupname, intermediaire, number, group, b,
    deps, liste, i, title, vote, indices, indices_temp, path, delegate)
 
-# Clean the list of deputees appearing twice ----
-res <- res %>% filter(group != 0 & group != "") %>%
+# Clean political groups to delete replicate ----
+group <- res$group
+group1 <- group2 <- group3 <- rep(0, length(group))
+for(i in 1:length(group)){
+  delegate_group <- unlist(str_split(group[i], ","))
+  delegate_group <- delegate_group[!str_detect(delegate_group, '"')]
+  delegate_group <- delegate_group[delegate_group != ""]
+  delegate_group <- sort(unique(delegate_group), decreasing = T)
+  group1[i] <- sort(delegate_group, decreasing = T)[1]
+  group2[i] <- sort(delegate_group, decreasing = T)[2]
+  group3[i] <- sort(delegate_group, decreasing = T)[3]
+}
+res$group1 <- group1; res$group2 <- group2; res$group3 <- group3
+res <- res %>% filter(group1 != 0 & group1 != "" & (!is.na(group1))) %>%
+               select(-group) %>%
                mutate(circo = as.integer(circo))
 
+rm(i, group1, group2, group3, group, delegate_group)
+
+# Clean group names ----
+for(name in c("group1", "group2", "group3")){
+  groupnames <- res[[name]]
+  groupnames <- str_replace_all(groupnames, "PO656010", "UDI")
+  groupnames <- str_replace_all(groupnames, "PO656018", "GDR")
+  groupnames <- str_replace_all(groupnames, "PO656002", "SER")
+  groupnames <- str_replace_all(groupnames, "PO707869", "LR")
+  groupnames <- str_replace_all(groupnames, "PO656006", "LR")
+  groupnames <- str_replace_all(groupnames, "PO684957", "LR")
+  groupnames <- str_replace_all(groupnames, "PO713077", "SER")
+  groupnames <- str_replace_all(groupnames, "PO656022", "RRPD")
+  groupnames <- str_replace_all(groupnames, "PO645633", "Independent")
+  groupnames <- str_replace_all(groupnames, "PO656014", "Greens")
+  res[[name]] <- groupnames
+}
+
+# Clean the list of deputees appearing twice ----
 doubles <- res %>% group_by(name, surname) %>% filter(n() > 1)
 meta_double <- doubles %>% select(circo, dept, name, surname, identifiant,
-                                  iden, group) %>%
-               mutate(group = factor(group,
-                                     levels = c("PO645633", "PO656022",
-                                                "PO707869", "PO713077",
-                                                "PO656014", "PO656002",
-                                                "PO656006"))) %>%
-               arrange(group) %>%
+                                  iden, group1, group2, group3) %>%
                group_by(name, surname) %>%
                summarise(circo = mean(circo, na.rm = T),
                          dept = mean(dept, na.rm = T),
                          iden = paste(circo, dept, sep = "-"),
-                         identifiant = first(identifiant),
-                         group = as.character(first(group)))
+                         identifiant = dplyr::first(identifiant),
+                         group1 = unique(group1)[1],
+                         group2 = unique(group2)[2],
+                         group3 = unique(group2)[3])
 
 cleaned <- meta_double %>% left_join(doubles %>%
-                                          select(-one_of(colnames(meta_double)),
-                                                        -NbVote, -NbYes,
-                                                        -NbNo, -NbAbst)) %>%
-                           gather(key = "votes", value = "voting", 8:651) %>%
+                                     select(-one_of(colnames(meta_double)),
+                                             -NbVote, -NbYes,
+                                             -NbNo, -NbAbst)) %>%
+                           gather(key = "votes", value = "voting", 9:653) %>%
                            filter(!is.na(voting)) %>%
+                           distinct() %>%
                            spread(key = "votes", value = "voting") %>%
                            mutate(circo = as.integer(circo),
-                                  dept = as.numeric(dept))
+                                   dept = as.numeric(dept))
+
 
 res <- res %>% anti_join(doubles) %>% full_join(cleaned)
-
-# Clean group names ----
-groupnames <- res$group
-groupnames[groupnames == "PO656010"] <- "UDI"
-groupnames[groupnames == "PO645633"] <- "Non-aligned"
-groupnames[groupnames == "PO656014"] <- "Non-aligned"
-groupnames[groupnames == "PO656018"] <- "GDR"
-groupnames[groupnames == "PO713077"] <- "SER"
-groupnames[groupnames == "PO707869"] <- "LR"
-groupnames[groupnames == "PO707869"] <- "LR"
-groupnames[groupnames == "PO656002"] <- "Gvt"
-groupnames[groupnames == "PO656006"] <- "RRPD"
-res$group <- groupnames
 
 write_csv(res, path = "data/voting_record.csv")
 write_csv(votes, path = "data/votes.csv")

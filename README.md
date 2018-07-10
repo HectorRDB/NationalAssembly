@@ -36,8 +36,8 @@ Here, we instead have a *J* bills by *n* delegates matrix. Each cell represent t
 ``` r
 # Create the phenodata matrix
 voting_record <- read_csv("data/voting_record.csv")
-meta <- voting_record %>% select(circo, dept, name, surname, identifiant,
-                                 iden, group, NbVote, NbYes, NbNo, NbAbst)
+meta <- voting_record %>% select(circo, dept, name, surname, identifiant, iden,
+                                 group1, group2, group3, NbVote, NbYes, NbNo, NbAbst)
 voting_record <- voting_record %>% select(-one_of(colnames(meta))) %>%
                                    t(.)
 
@@ -138,22 +138,26 @@ for(j in 1:nrow(Assay)){
   voting_behavior$n_votes_cast[j] <- sum(Nb_Votes)
 }
 
+voting_behavior <- voting_behavior %>% mutate(n_votes_cast = n_votes_cast /
+                                                              max(n_votes_cast),
+                                              n_votes = n_votes / max(n_votes))
+
 ggplot(voting_behavior,
        aes(x = n_votes, y = n_votes_cast, col = j)) +
   geom_point() + theme_classic() + 
-  labs(x = "Number of bills kept",
-       y = "Number of votes kept",
+  labs(x = "% of bills kept",
+       y = "% of votes kept",
        col = "Cutoff value") +
-  geom_point(col = "red", data = voting_behavior %>% filter(j == 130)) +
   geom_label(label = "Final\nCutoff",
             data = voting_behavior %>% filter(j == 130),
-            nudge_x = -120, nudge_y = 1E4,
+            nudge_x = -.15, nudge_y = .1,
             col = "black") +
   geom_curve(data = voting_behavior %>% filter(j == 130), curvature = 0,
-            aes(x = n_votes -70, xend = n_votes,
-                y = n_votes_cast + 1E4, yend = n_votes_cast),
-            col = "black",
-            arrow = arrow(length = unit(0.03, "npc")))
+            aes(x = n_votes -.095, xend = n_votes,
+                y = n_votes_cast + .1, yend = n_votes_cast),
+            col = "black", size = .9, 
+            arrow = arrow(length = unit(0.03, "npc"))) +
+  geom_point(col = "red", data = voting_behavior %>% filter(j == 130))
 ```
 
 <img src="Single-cell_files/figure-markdown_github/filtering genes-1.png"  style="display: block; margin: auto;" />
@@ -203,10 +207,8 @@ ce <- combineMany(ce, minSize = 12, proportion = 0.6,
 # Merge clusters
 ce <- makeDendrogram(ce)
 ce <- mergeClusters(ce, mergeMethod="adjP", plotInfo = "adjP",
-                  cutoff = 0.35, clusterLabel = "Clusters", plot = T)
+                  cutoff = 0.35, clusterLabel = "Clusters", plot = F)
 ```
-
-<img src="Single-cell_files/figure-markdown_github/clustering-1.png"  style="display: block; margin: auto;" />
 
 After running the algorithm, we find 6 clusters that we can visualize on the first 2 principal components.
 
@@ -215,7 +217,7 @@ After running the algorithm, we find 6 clusters that we can visualize on the fir
 pca <- prcomp(t(exprs(Assay)))
 Clusters <- data.frame(clusters = ce@clusterMatrix[,1],
                        x = pca$x[,1], y = pca$x[,2],
-                       group = phenoData(Assay)@data$group)
+                       group = phenoData(Assay)@data$group1)
 ggplot(Clusters, aes(x = x, y = y, col = factor(clusters))) +
   geom_point(size = 2, alpha = 0.7) +
   labs(col = "Clusters", x = "PC1", y = "PC2") +
@@ -232,8 +234,8 @@ We can see how those clusters compare with the actual political groups
 
 ``` r
 ggplot(Clusters, aes(x = x, y = y,
-       col = factor(group, levels = c("Non-aligned", "LR", "SER", "GDR",
-                                      "RRPD", "Gvt", "UDI")))) +
+       col = factor(group, levels = c("Independent", "LR", "SER", "GDR",
+                                      "Greens", "RRPD", "UDI")))) +
   geom_point(size = 2, alpha = 0.7) +
   labs(col = "Clusters", x = "PC1", y = "PC2") +
   scale_color_manual(values = brewer.pal(7, "Set2")) +
@@ -243,21 +245,23 @@ ggplot(Clusters, aes(x = x, y = y,
 
 <img src="Single-cell_files/figure-markdown_github/plot groups-1.png"  style="display: block; margin: auto;" />
 
-We can see that we correctly identified 5 main groups: SER (left, governing party) and Gvt, i.e delegates that where called in government as some point, as well as the two main opposition parties, LR (right) and UDI (center-right). The far left party GDR is also correclty identify. However, we cannot identify the RRPD (center-left), which was part of the governing coalition. Moreover, we identify a new group (cluster 4) among the SER. We will later look at which votes distinguish this cluster from the main SER one.
+We can see that we correctly identified 5 main groups: SER (left, governing party), as well as the two main opposition parties, LR (right) and UDI (center-right). The far left party GDR is also correclty identify. However, we cannot identify the RRPD (center-left), which was part of the governing coalition, nor the greens (which can be identified if we choose a smaller minimum cluster size but we then start to see to many clusters).
+
+We can morever see that we partitionshed the governing coalition in three. This situation has an analog in biological settings. We cluster our data in an unsupervised manner even though we know some rough biological types. Then we can compare our clusters and the types. If, like it does here, we have some good matches, we can be confident in our clustering techniques. Any new partition we discover might therefore be interesting and can be investigated.
 
 Finding differentially expressed genes
 --------------------------------------
 
-We can now look at the votes and ask: which votes set a given group appart from the others? This can be done in two ways. Either looking at the clusters we found to try and identify them, or look at clusters we know and find the votes that separate them. In the first case, we care about the naming the clusters, in the other about finding bills that create a lot of political differentiation.
+We can now look at the votes and ask: which votes set a given group appart from the others? This can be done in two ways. Either looking at the clusters we found to try and identify them (like we will do for clusters 2, 4 & 5), or look at the political labels that we know and find the votes that separate them. In the first case, we care about the characterizing the clusters, in the other about finding bills that create a lot of political differentiation.
 
-In scRNA-seq settings, the first case would be looking at clusters and use known-marker genes to identify them. The other case would be identifying knwon-marker genes, or finding DE genes between treatment and control, or many other possible scenario.
+In scRNA-seq settings, the first case would be looking at clusters and use known-marker genes, gene ontology or pathway analysis to identify them. The other case would be identifying knwon-marker genes, or finding DE genes between treatment and control, or many other possible scenario.
 
-In this example, we will look at the second case: which votes distinguish political groups? We can see it in two regards in our example. What votes distinguish each group from the governing coalitions (SER-RRPD, Gvt)? What votes distinguish each group from all others?
+In this example, we will look at the second case: which votes distinguish political groups? We can see it in two regards in our example. What votes distinguish each group from the governing coalitions (SER-RRPD-Greens)? What votes distinguish each group from all others?
 
 ``` r
-groups <- phenoData(Assay)$group
-groups[groups %in%  c("SER", "Gvt", "RRPD")] <- "Gov"
-groups <- as.numeric(factor(groups), levels = c("Non-aligned", "LR", "UDI",
+groups <- phenoData(Assay)$group1
+groups[groups %in%  c("SER", "Greens", "RRPD")] <- "Gov"
+groups <- as.numeric(factor(groups), levels = c("Independent", "LR", "UDI",
                                                 "GRD", "GOV"))
 
 contrasts <- getBestFeatures(exprs(Assay), groups,
@@ -266,7 +270,7 @@ contrasts <- getBestFeatures(exprs(Assay), groups,
              filter(str_detect(Contrast, "-Cl05")) %>%
              group_by(Contrast) %>%
              arrange(P.Value) %>%
-             top_n(5, P.Value) %>%
+             top_n(-5, P.Value) %>%
              select(Contrast, Feature) %>%
              mutate(Feature = as.numeric(Feature)) %>%
              left_join(Assay@featureData@data,
@@ -276,18 +280,19 @@ contrasts <- getBestFeatures(exprs(Assay), groups,
   mutate(groupid = row_number()) %>%
   spread(Contrast, Title) %>%
   select(-groupid)
+
+colnames(contrasts) <- c("Independent", "LR (right)", "UDI (center-right)",
+                         "GRD (far-right)")
 kable(contrasts)
 ```
 
-| Cl01-Cl05                                                                                                                                                                              | Cl02-Cl05                                                                                                                                                                                    | Cl03-Cl05                                                                                                                                                                                           | Cl04-Cl05                                                                                                                                                                                                           |
-|:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| l'amendement n° 207 de M. Faure à l'article 2 du projet de loi constitutionnelle de protection de la Nation (première lecture).                                                        | la déclaration du Gouvernement, en application de l'article 35, alinéa 3, de la Constitution, sur l'autorisation de la prolongation de l'intervention des forces françaises en Centrafrique. | l'ensemble du projet de loi de finances pour 2015 (nouvelle lecture)                                                                                                                                | l'ensemble du projet de loi relatif à la délimitation des régions, aux élections régionales et départementales et modifiant le calendrier électoral (lecture définitive).                                           |
-| la motion de rejet préalable, présentée par M. Christian Jacob, du projet de loi, adopté par le Sénat, portant nouvelle organisation territoriale de la République (première lecture). | le projet de loi relatif à la sécurisation de l'emploi (texte de la CMP)                                                                                                                     | l'ensemble du projet de loi renforçant la lutte contre le crime organisé, le terrorisme et leur financement, et améliorant l'efficacité et les garanties de la procédure pénale (première lecture). | la motion de renvoi en commission, déposée par M. Christian Jacob, du projet de loi visant à instituer de nouvelles libertés et de nouvelles protections pour les entreprises et les actif-v-es (première lecture). |
-| l'ensemble du projet de loi relatif à la transparence, à la lutte contre la corruption et à la modernisation de la vie économique (première lecture)                                   | l'amendement n° 32 de M. Ciotti après l'article 2 du projet de loi prorogeant l'application de la loi n° 55-385 du 3 avril 1955 relative à l'état d'urgence (première lecture)               | l'ensemble de l'article premier du projet de loi constitutionnelle de protection de la Nation (seconde délibération) (première lecture).                                                            | l'article 4 ter du projet de loi relatif à la santé (nouvelle lecture).                                                                                                                                             |
-| l'ensemble de la proposition de loi organique relative à la compétence du Défenseur des droits pour la protection des lanceurs d'alerte (première lecture)                             | la Déclaration du Gouvernement, en application de l'article 35, alinéa 3, de la Constitution, sur l'autorisation de la prolongation de l'intervention des forces armées en Irak.             | l'amendement n° 1 du Gouvernement à l'article premier du projet de loi constitutionnelle de protection de la Nation (seconde délibération) (première lecture).                                      | l'ensemble du projet de loi relatif à la sécurisation de l'emploi (première lecture).                                                                                                                               |
-| l'ensemble du projet de loi relatif à la transparence, à la lutte contre la corruption et à la modernisation de la vie économique (lecture définitive)                                 | le projet de loi de modernisation, de développement et de protection des territoires de montagne (première lecture).                                                                         | la motion de censure déposée en application de l'article 49, alinéa 3, de la Constitution par M. Christian Jacob, M. Philippe Vigier et 146 membres de l'Assemblée.                                 | la motion de renvoi en commission pour le projet de loi relatif à la délimitation des régions, aux élections régionales et départementales et modifiant le calendrier électoral                                     |
-
-Most of them are either budget-related laws or motion of censoring for the government, i.e big political laws. So, if cluster 1 voted for those laws, it's an opposition party, otherwise it's a governing party.
+| Independent                                                                                                                                                                                                                    | LR (right)                                                                                                     | UDI (center-right)                                                                                                                                               | GRD (far-right)                                                                                                                                                  |
+|:-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:---------------------------------------------------------------------------------------------------------------|:-----------------------------------------------------------------------------------------------------------------------------------------------------------------|:-----------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| la motion de censure déposée en application de l'article 49, alinéa 2 de la Constitution par M. Christian Jacob et 144 membres de l'Assemblée.                                                                                 | l'ensemble de la première partie du projet de loi de finances pour 2014.                                       | sur l'ensemble du projet de loi organique relatif à la programmation et à la gouvernance des finances publiques.                                                 | l'ensemble du projet de loi relatif à la lutte contre la fraude fiscale et la grande délinquance économique et financière.                                       |
+| l'ensemble du projet de loi relatif à la prévention de la récidive et à l'individualisation des peines.                                                                                                                        | l'ensemble du projet de loi de financement de la sécurité sociale pour 2014.                                   | la proposition de loi organique relative à la nomination du président du conseil d'administration de l'Agence française pour la biodiversité (première lecture). | l'ensemble du projet de loi relatif à la lutte contre la fraude fiscale et la grande délinquance économique et financière.                                       |
+| l'ensemble du projet de loi relatif à la mobilisation du foncier public en faveur du logement et au renforcement des obligations de production de logement social (première lecture).                                          | l'ensemble du projet de loi d'orientation et de programmation pour la refondation de l'école de la République. | la proposition de loi organique relative à la nomination des dirigeants de la SNCF.                                                                              | la proposition de loi organique relative à la nomination du président du conseil d'administration de l'Agence française pour la biodiversité (première lecture). |
+| l'ensemble de la proposition de loi tendant à modifier la loi n° 2011-814 du 7 juillet 2011 relative à la bioéthique en autorisant sous certaines conditions la recherche sur l'embryon et les cellules souches embryonnaires. | la première partie du projet de loi de finances pour 2013.                                                     | l'ensemble du projet de loi pour une République numérique (première lecture).                                                                                    | l'ensemble du projet de loi relatif à la réforme de l'asile (première lecture).                                                                                  |
+| l'ensemble de la proposition de loi constitutionnelle visant à rendre constitutionnel le principe d'indisponibilité du corps humain (première lecture).                                                                        | l'ensemble du projet de loi de financement de la sécurité sociale pour 2014 (nouvelle lecture).                | l'ensemble du projet de loi relatif à la réforme de l'asile (première lecture).                                                                                  | le projet de loi organique relatif au procureur de la République financier (lecture définitive).                                                                 |
 
 R session
 =========
@@ -315,7 +320,7 @@ sessionInfo()
     ##  [1] bindrcpp_0.2.2              stringr_1.3.1              
     ##  [3] RColorBrewer_1.1-2          clusterExperiment_2.0.2    
     ##  [5] SingleCellExperiment_1.2.0  SummarizedExperiment_1.10.1
-    ##  [7] DelayedArray_0.6.0          BiocParallel_1.14.1        
+    ##  [7] DelayedArray_0.6.1          BiocParallel_1.14.2        
     ##  [9] GenomicRanges_1.32.3        GenomeInfoDb_1.16.0        
     ## [11] IRanges_2.14.10             S4Vectors_0.18.3           
     ## [13] readr_1.1.1                 ggplot2_3.0.0              
@@ -327,7 +332,7 @@ sessionInfo()
     ##  [1] nlme_3.1-137           bitops_1.0-6           progress_1.2.0        
     ##  [4] httr_1.3.1             doParallel_1.0.11      rprojroot_1.3-2       
     ##  [7] prabclus_2.2-6         tools_3.5.0            backports_1.1.2       
-    ## [10] R6_2.2.2               HDF5Array_1.8.0        lazyeval_0.2.1        
+    ## [10] R6_2.2.2               HDF5Array_1.8.1        lazyeval_0.2.1        
     ## [13] colorspace_1.3-2       ade4_1.7-11            trimcluster_0.1-2     
     ## [16] nnet_7.3-12            withr_2.1.2            prettyunits_1.0.2     
     ## [19] tidyselect_0.2.4       gridExtra_2.3          compiler_3.5.0        
@@ -336,7 +341,7 @@ sessionInfo()
     ## [28] mvtnorm_1.0-8          robustbase_0.93-1      NMF_0.21.0            
     ## [31] digest_0.6.15          rmarkdown_1.10         XVector_0.20.0        
     ## [34] pkgconfig_2.0.1        htmltools_0.3.6        bibtex_0.4.2          
-    ## [37] highr_0.7              limma_3.36.1           rlang_0.2.1           
+    ## [37] highr_0.7              limma_3.36.2           rlang_0.2.1           
     ## [40] howmany_0.3-1          bindr_0.1.1            mclust_5.4.1          
     ## [43] dendextend_1.8.0       RCurl_1.95-4.10        magrittr_1.5          
     ## [46] modeltools_0.2-21      GenomeInfoDbData_1.1.0 Matrix_1.2-14         
