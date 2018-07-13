@@ -13,7 +13,7 @@ However, the usual framework might seem a little daunting for beginners and, whi
 Description
 ============
 
-The data consists of the record of votes of all delegates of the $14^{th}$ legislature  (2012-2017) of the French parliament. Only some basics on data analysis are needed to understand this tutorial. Knowledge of R helps to understand the code but is not necessary to follow along.
+The data consists of the record of votes of all delegates of the <a href="https://www.codecogs.com/eqnedit.php?latex=14^{th}" target="_blank"><img src="https://latex.codecogs.com/gif.latex?14^{th}" title="14^{th}" /></a> legislature  (2012-2017) of the French parliament. Only some basics on data analysis are needed to understand this tutorial. Knowledge of R helps to understand the code but is not necessary to follow along.
 
 To access the tutorial, see [here](https://hectorrdb.github.io/NationalAssembly/).
 
