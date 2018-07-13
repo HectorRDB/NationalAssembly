@@ -32,13 +32,12 @@ _Remarks_:  We use bill as a generic term to cover amendments, confidence votes,
 
 
 ```{r packages, echo = F, message=F, warning=F}
-libraries <- c("knitr", "Biobase", "matrixStats", "dplyr", "tidyr", "ggplot2",
-               "readr", "clusterExperiment", "RColorBrewer", "stringr",
-               "kableExtra", "purrr")
-sapply(libraries, require, character.only = TRUE)
+.bio_lib <- c("Biobase", "clusterExperiment")
+.cran_lib <- c("knitr", "kableExtra", "tidyverse", "RColorBrewer", "matrixStats")
+sapply(c(.bio_lib, .cran_lib), require, character.only = TRUE)
 opts_chunk$set(fig.pos='!h', out.extra = '', warning = F, message = F,
                fig.width = 6, fig.height = 4, fig.align='center', echo = T)
-rm(libraries)
+rm(.bio_lib, .cran_lib)
 ```
 
 ```{r load}
@@ -61,9 +60,7 @@ letters_to_num <- function(vote){
   if(vote == "NotVoting") return(0)
 }
 
-voting_record <- voting_record %>% as.data.frame(.) %>%
-                                   map_df(letters_to_num) %>%
-                                   as.matrix(.)
+voting_record <- apply(voting_record, 2, letters_to_num)
 
 # Build the ExpressionSet object
 bills <- read_csv("data/votes.csv")
@@ -157,14 +154,14 @@ ggplot(voting_behavior,
        aes(x = n_votes, y = n_votes_cast, col = j)) +
   geom_point() + theme_classic() +
   labs(x = "% of bills kept",
-       y = "% of votes casted kept",
+       y = "% of casted votes kept",
        col = "Cutoff value") +
   geom_label(label = "Final\nCutoff",
             data = voting_behavior %>% filter(j == j_opt),
             nudge_x = -.15, nudge_y = .1,
             col = "black") +
   geom_curve(data = voting_behavior %>% filter(j == j_opt), curvature = 0,
-            aes(x = n_votes -.085, xend = n_votes,
+            aes(x = n_votes -.1, xend = n_votes,
                 y = n_votes_cast + .1, yend = n_votes_cast),
             col = "black", size = .9,
             arrow = arrow(length = unit(0.03, "npc"))) +
