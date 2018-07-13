@@ -1,8 +1,8 @@
 ---
-title: "Understanding RNA-seq analysis through an example: voting behavior at the French parliament"
+title: "A short tutorial to help beginners in biostatistics and genomics understand an usual single-cell RNA-sequencing workflow: looking at the voting behavior at the French parliament"
 author: "Hector Roux de Bézieux"
-date: "May 2018"
-output: 
+date: "July 2018"
+output:
   # github_document:
   #   toc: true
   BiocStyle::html_document
@@ -11,6 +11,25 @@ vignette: >
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
+
+# Introduction
+
+Single-cell RNA-sequencing (scRNA-seq) is a very potent biological tool used for many applications. A far from exhaustive list would include identifying new cell types, finding differentially expressed (DE) genes, and discovering lineages among cells. To get an overview of the principle, see  [here](https://en.wikipedia.org/wiki/Single_cell_sequencing#Single-cell_RNA_sequencing_(scRNA-seq)).
+
+However, the usual framework might seem a little daunting for beginners and, while many well-crafted tutorials exists, they all share the same idea: use a biological dataset as an example. Here, we want to use a dataset that would be more understandable to a broader public to explain the usual steps in scRNA-seq analysis. Only some basics on data analysis are needed to understand this tutorial. Knowledge of R helps to understand the code but is not necessary to follow along.
+
+
+# Context
+
+Our dataset is the voting record of the French delegates of the $14^{th}$ legislature, going from May 2012 to May 2017. Delegates are characterized by their names and surnames, their department and circonscription, their political group. For each of the 644 occasions of votes (which can be bills, amendments, choosing the prime minister, ...), we also have the voting behavior of each delegate (voted yes, no, abstain or did not took part in the vote) and the reason of the vote. We are interested in investigating the link between voting behavior and political affiliations.
+
+# Loading the data and building an ExpressionSet object
+
+The usual scRNA-seq data is a matrix of $J$ genes by $n$ biological cells. Each cell of the matrix represents the number of copies of messenger RNA of a given gene in a given biological cell.This number serves as a proxy for the number of proteins from this mRNA and therefore represent how active a gene is in a given cell. We also eventually have some information about cells.
+
+Here, we instead have a $J$ bills by $n$ delegates matrix. Each cell represent the vote of the delegate for that low ($-1$ if against, $1$ is for, $0$ if not voting or abstained). 
+_Remarks_:  We use bill as a generic term to cover amendments, confidence votes, actual bills, ....
+
 
 ```{r packages, echo = F, message=F, warning=F}
 libraries <- c("knitr", "Biobase", "matrixStats", "dplyr", "tidyr", "ggplot2",
@@ -22,53 +41,45 @@ opts_chunk$set(fig.pos='!h', out.extra = '', warning = F, message = F,
 rm(libraries)
 ```
 
-# Introduction
-
-Single-cell RNA-sequencing (scRNA-seq) is a very potent biological tool used for many applications. A far from exhaustive list would include identifying new cell types, finding differentially expressed (DE) genes, and discovering lineages among cells. However, the usual framework might seem a little daunting for beginners and, while many well-crafted tutorials exists, they all share the same idea: use a biological dataset as an example. Here, we want to use a dataset that would be more understandable to a broader public to explain the usual steps in scRNA-seq analysis. Only some basics on data analysis are needed to understand this tutorial. Knowledge of R helps to understand the code but is not necessary to follow along.
-
-
-# Context
-
-Our dataset is the voting record of the French delegates of the $14^{th}$ legislature, going from May 2012 to May 2017. Delegates are characterized by their names and surnames, their department and circonscription, their political group. For each of the 644 votes (which can be bills, amendments, choosing the prime minister, ...), we also have the voting behavior of each delegate (voted yes, no, abstain or did not took part in the vote) and the reason of the vote. We are interested in investigating the link between voting behavior and political affiliations.
-
-# Loading the data and building an ExpressionSet object
-
-The usual scRNA-seq data is a matrix of $J$ genes by $n$ biological cells. Each cell of the matrix represents the number of copies of messenger RNA of a given gene in a given biological cell.This number serves as a proxy for the number of proteins from this mRNA and therefore represent how active a gene is in a given cell. We also eventually have some information about cells
-
-Here, we instead have a $J$ bills by $n$ delegates matrix. Each cell represent the vote of the delegate for that low ($-1$ if against, $1$ is for, $0$ if not voting or abstained). We store the data in an *ExpressionSet* object, where the *phenodata* is the information about the delegates (the cells) and the *featuredata* is the information about the votes (the genes).
-
 ```{r load}
 # Create the phenodata matrix
 voting_record <- read_csv("data/voting_record.csv")
-meta <- voting_record %>% select(circo, dept, name, surname, identifiant, iden,
+MetaData <- voting_record %>% select(circo, dept, name, surname, identifiant, iden,
                                  group1, group2, group3, NbVote, NbYes, NbNo, NbAbst)
-voting_record <- voting_record %>% select(-one_of(colnames(meta))) %>%
+voting_record <- voting_record %>% select(-one_of(colnames(MetaData))) %>%
                                    t(.)
 
 # We count abstaining and not voting as the same thing for simplification
-voting_record[is.na(voting_record)] <- "NA"
-voting_record[voting_record == "For"] <- "1"
-voting_record[voting_record == "Against"] <- "-1"
-voting_record[voting_record == "Abstain"] <- "0"
-voting_record[voting_record == "NotVoting"] <- "0"
-voting_record[voting_record == "NA"] <- NA
-voting_record <- apply(voting_record, 2, as.numeric)
+letters_to_num <- function(vote){
+  if(length(vote) > 1){
+    return(sapply(vote, letters_to_num))
+  }
+  if(is.na(vote)) return(NA)
+  if(vote == "For") return(1)
+  if(vote == "Against") return(-1)
+  if(vote == "Abstain") return(0)
+  if(vote == "NotVoting") return(0)
+}
+
+voting_record <- voting_record %>% as.data.frame(.) %>%
+                                   map_df(letters_to_num) %>%
+                                   as.matrix(.)
 
 # Build the ExpressionSet object
-votes <- read_csv("data/votes.csv")
-colnames(voting_record) <- rownames(meta) <- meta$identifiant
-rownames(voting_record) <- rownames(votes) <- votes$Number
-Assay <- ExpressionSet(assayData = voting_record, 
-                       phenoData = AnnotatedDataFrame(meta) ,
-                       featureData = AnnotatedDataFrame(votes))
+bills <- read_csv("data/votes.csv")
+colnames(voting_record) <- rownames(MetaData) <- MetaData$identifiant
+rownames(voting_record) <- rownames(bills) <- bills$Number
+Assay <- ExpressionSet(assayData = voting_record,
+                       phenoData = AnnotatedDataFrame(MetaData) ,
+                       featureData = AnnotatedDataFrame(bills))
 ```
 
 # Data Cleaning
 ## Filtering the cells (delegate)
 
-In scRNA-seq settings, we want to filter the cells with too few total reads, or with too many reads of poor quality (that do not match to the genome of reference). Here, we instead filter the delegates with too few voting possibilities. This may happen either because a delegate had to leave office before the end of the session, or was appointed to the government, and then its replacement is not around long enough.
+In scRNA-seq settings, we want to filter the cells with too few reads in total, or with too many reads of poor quality (that do not match to the genome of reference). Here, we instead filter the delegates with too few voting possibilities. This may happen either because a delegate had to leave office before the end of the session, or was appointed to the government, or replaced a delegate in the previous cases.
 
-We therefore filter delegates whose number of votes is more than 2 SD below the mean (so equal or less to 40).
+We therefore filter delegates whose number of voting possibilities is more than 2 SD below the mean (so equal or less to 40).
 
 ```{r filtering cells}
 Nb_Votes <- data.frame(Nb_Votes = colSums(!is.na(exprs(Assay))),
@@ -76,8 +87,8 @@ Nb_Votes <- data.frame(Nb_Votes = colSums(!is.na(exprs(Assay))),
 
 ggplot(Nb_Votes, aes(x = Nb_Votes, fill = Nb_Votes > 40)) +
       stat_bin(breaks = seq(0, max(Nb_Votes$Nb_Votes), 20)) +
-      labs(x = "Number of votes") +
-      guides(fill = guide_legend(title = "Could vote\nmore than\n40 times")) +
+      labs(x = "Number of bills") +
+      guides(fill = guide_legend(title = "Could have voted\nat least \n40 times")) +
       scale_fill_manual(values = brewer.pal(3, "Set1")[c(1, 3)],
                         breaks = c(TRUE, FALSE)) +
   theme_classic()
@@ -86,7 +97,7 @@ ggplot(Nb_Votes, aes(x = Nb_Votes, fill = Nb_Votes > 40)) +
 Assay <- Assay[, Nb_Votes$Nb_Votes > 40]
 ```
 
-We then simplify the data by replacing NAs by 0 (as abstentions). We can then check whether some delegates rarely voted. Again, we remove people whose number of votes is more than 2 SD below the mean number of votes (so delegates who actually voted less than 38 votes). Among those, we of course find the president of the parliament, who does not take part in the votes and therefore never voted. 
+We then simplify the data by replacing NAs by 0 (as if they were abstentions). We can then check whether some delegates rarely voted. Again, we remove those whose actual number of votes is more than 2 SD below the mean number of votes (so delegates who actually voted less than 38 votes).
 
 ```{r change NA to zeros}
 # Remplace NAs by zeros
@@ -98,7 +109,6 @@ colnames(E) <- rownames(pd) <- pd@data$identifiant
 rownames(E) <- rownames(fd) <- fd@data$Number
 Assay <- ExpressionSet(assayData = E, phenoData = pd, featureData = fd)
 
-# Filter
 Nb_Votes <- data.frame(Nb_Votes = colSums(exprs(Assay) != 0),
                        delegate = rownames(phenoData(Assay)))
 ggplot(Nb_Votes, aes(x = Nb_Votes, fill = Nb_Votes > 38)) +
@@ -108,12 +118,19 @@ ggplot(Nb_Votes, aes(x = Nb_Votes, fill = Nb_Votes > 38)) +
   scale_fill_manual(values = brewer.pal(3, "Set1")[c(1, 3)],
                         breaks = c(TRUE, FALSE)) +
   theme_classic()
+```
+
+Among those, we of course find the president of the parliament, who does not take part in the votes and therefore never voted.
+```{r}
+sum(exprs(Assay)[,pd@data$name == "Bartolone"])
+
+# Filter
 Assay <- Assay[, Nb_Votes$Nb_Votes > 38]
 ```
 
 ## Filtering the genes (votes)
 
-In scRNA-seq settings, we want to filter out genes that are expressed in a small number of cells. This is done for two reasons. The first is computational. Most datasets would have dozens of thousands of genes, over dozens or hundreds of cells. Reducing the number of genes helps speed up calculations. Secondly, we are usually interested in a specific tissue or process. Most genes are not being expressed in the samples of interest and just add noise to the analysis. Hence filtration. Simple heuristics in the form of "at least $i$ counts in $j$ cells" are usually quite efficient. The aim is too be quite broad. We want to filter as many genes as possible while retaining most of the reads. In usual settings, you would only keep ~20\% of the genes at most but that would still capture more than 90\% of the reads.
+In scRNA-seq settings, we want to filter out genes that are expressed in a small number of cells. This is done for two reasons. The first is computational. Most datasets would have dozens of thousands of genes, over dozens or hundreds of cells. Reducing the number of genes helps speed up calculations by orders of magnitude. Secondly, we are usually interested in a specific tissue or process. Most genes are not being expressed in the samples of interest and just add noise to the analysis. Hence filtration. Simple heuristics in the form of "at least $i$ counts in $j$ cells" are usually quite efficient. The aim is too be quite broad. We want to filter as many genes as possible while retaining most of the reads. In usual settings, you would only keep ~20\% of the genes at most but that would still capture more than 90\% of the reads.
 
 In our context, we only have 644 votes so the computational goal does not really hold. But we can filter out votes where many delegates did not vote. Those are probably non-political technical votes. We therefore use the filter rules "at least $j$ delegates cast a vote on the bill".
 
@@ -133,49 +150,52 @@ voting_behavior <- voting_behavior %>% mutate(n_votes_cast = n_votes_cast /
                                                               max(n_votes_cast),
                                               n_votes = n_votes / max(n_votes))
 
+j_opt <- which.min((voting_behavior$n_votes)^2 +
+                   (1-voting_behavior$n_votes_cast)^2)
+
 ggplot(voting_behavior,
        aes(x = n_votes, y = n_votes_cast, col = j)) +
-  geom_point() + theme_classic() + 
+  geom_point() + theme_classic() +
   labs(x = "% of bills kept",
-       y = "% of votes kept",
+       y = "% of votes casted kept",
        col = "Cutoff value") +
   geom_label(label = "Final\nCutoff",
-            data = voting_behavior %>% filter(j == 130),
+            data = voting_behavior %>% filter(j == j_opt),
             nudge_x = -.15, nudge_y = .1,
             col = "black") +
-  geom_curve(data = voting_behavior %>% filter(j == 130), curvature = 0,
-            aes(x = n_votes -.095, xend = n_votes,
+  geom_curve(data = voting_behavior %>% filter(j == j_opt), curvature = 0,
+            aes(x = n_votes -.085, xend = n_votes,
                 y = n_votes_cast + .1, yend = n_votes_cast),
-            col = "black", size = .9, 
+            col = "black", size = .9,
             arrow = arrow(length = unit(0.03, "npc"))) +
-  geom_point(col = "red", data = voting_behavior %>% filter(j == 130))
+  geom_point(col = "red", data = voting_behavior %>% filter(j == j_opt))
 
 ```
 
-We can see a clear inflexion point in the curve, that we pick as the final cutoff value. Our final filtering rule for bills (genes) is "At least 130 delegates cast at vote."
+We can see a clear inflexion point in the curve, that we pick as the final cutoff value. This is the closest point to the optimal place, which is the top left corner. Our final filtering rule for bills (genes) is therefore "At least `r j_opt` delegates cast at vote."
 
 ```{r}
 # Filter
-Assay <- Assay[rowSums(exprs(Assay) != 0) >= 130, ]
+Assay <- Assay[rowSums(exprs(Assay) != 0) >= j_opt, ]
 ```
 
 ```{r clean, echo=F}
-rm(meta, Nb_Votes, voting_behavior, votes, voting_record, E, fd, pd, j)
+rm(MetaData, Nb_Votes, voting_behavior, bills, voting_record, E, fd, pd, j, j_opt)
 ```
 
 # Normalization and correcting for zero inflation
 
-In scRNA-seq settings, after filtering comes a normalization step. scRNA-sequencing has a lot of technical issues and this technical noise can be stronger than any biological signal. Normalization tries to adjust for this. Here, we have no technical noise so we do not need to adjust for it. 
+In scRNA-seq settings, after filtering comes a normalization step. scRNA-sequencing has a lot of technical issues and this technical noise can be stronger than any biological signal. Normalization tries to adjust for this. Here, we have no technical noise so we do not need to adjust for it.
 
-This is also the time to adjust for dropouts. Indeed, because of technical difficulties, some genes may seem non-expressed (i.e their count is zero) while they in fact are. Zero-inflation methods try to adjust for that by categorizing the zeros into real and dropouts and, in the case of dropouts, try to input the missing values. 
+This is also the time to adjust for dropouts. Indeed, because of technical difficulties, some genes may seem non-expressed (i.e their count is zero) while they in fact are. Zero-inflation methods try to adjust for that by categorizing the zeros into real and dropouts and, in the case of dropouts, try to input the missing values.
 
-To better understand dropouts, let us go back to our example. In our voting record matrix, zeros represent abstention (i.e real zeros) and not being able to votes (i.e dropouts, we do not know what the delegate would have done if he could have voted). Adjusting for dropouts means identifying which zeros are true zeros (true abstentions) and then, for dropouts, estimating the real value. Since the technique that would be used to correct for dropouts in our political example would be different to biostatistical techniques used in scRNA-seq settings, we will not cover it here.
+To better understand dropouts, let us go back to our example. In our voting record matrix, zeros could be either abstention (i.e real zeros) and not being able to votes (i.e dropouts, we do not know what the delegate would have done if he could have voted). Adjusting for dropouts means inputing which zeros are true zeros (true abstentions) and then, for dropouts, estimating the real value. Since the techniques that would be used to correct for "dropouts" in our political example would be different to biostatistical techniques used in scRNA-seq settings, we will not cover it here.
 
 # Recovering / discovering biological types
 
 In most scRNA-seq settings, we have no information about the biological type. We therefore want to cluster the cells and then use marker genes to identify known-cell types. Alternatively, we can use clustering to discover new cell types and identify marker genes for those new types.
 
-In our example, let us imagine for a moment that we do not know the political group to which each delegate belong. Can we recover those groups? This will be done in two steps: discover stable clusters of delegates (cells) then identify vote (genes) that help distinguish those clusters.
+In our example, let us imagine for a moment that we do not know the political group to which each delegate belong. Can we recover those groups? This will be done in two steps: discover stable clusters of delegates (cells) then identify bills (genes) that help distinguish those clusters.
 
 ## Clustering
 
@@ -188,7 +208,7 @@ se <- SummarizedExperiment(assays = exprs(Assay))
 # Run all clustering methods
 ce <- clusterMany(x = se, k = seq(5, 50, 5),
                   clusterFunction = c("pam", "hierarchicalK"),
-                  reduceMethod = c("PCA"), 
+                  reduceMethod = c("PCA"),
                   ks = 2:20, minSizes = 5,
                   run=TRUE, transFun = function(x){x})
 # Find stable clusters
@@ -207,8 +227,8 @@ After running the algorithm, we find 6 clusters that we can visualize on the fir
 ```{r plot}
 # Plot clusters
 pca <- prcomp(t(exprs(Assay)))
-pc1 <- round(100 * (pca$sdev[1])^2/sum(pca$sdev^2), digits = 1) 
-pc2 <- round(100 * (pca$sdev[2])^2/sum(pca$sdev^2), digits = 1) 
+pc1 <- round(100 * (pca$sdev[1])^2/sum(pca$sdev^2), digits = 1)
+pc2 <- round(100 * (pca$sdev[2])^2/sum(pca$sdev^2), digits = 1)
 Clusters <- data.frame(clusters = ce@clusterMatrix[,1],
                        x = pca$x[,1], y = pca$x[,2],
                        group = phenoData(Assay)@data$group1)
@@ -219,7 +239,7 @@ ggplot(Clusters, aes(x = x, y = y, col = factor(clusters))) +
   scale_color_manual(values = brewer.pal(7, "Set2"),
                     breaks = c(-1, 1:6),
                     labels = c("Unclustered", paste("Cluster", 1:6))) +
-  theme_classic() + 
+  theme_classic() +
   theme(legend.title = element_text(hjust = 0.7))
 ```
 
@@ -232,7 +252,7 @@ ggplot(Clusters, aes(x = x, y = y,
   labs(col = "Clusters", x = paste0("PC1 [", pc1, "% of variation]"),
        y = paste0("PC2 [", pc2, "% of variation]")) +
   scale_color_manual(values = brewer.pal(7, "Set2")) +
-  theme_classic() + 
+  theme_classic() +
   theme(legend.title = element_text(hjust = 0.7))
 ```
 
@@ -242,11 +262,11 @@ We can moreover see that we partitioned the governing coalition in three. This s
 
 ## Finding differentially expressed genes between known clusters
 
-We can now look at the votes and ask: which votes set a given group apart from the others? We look at the political labels that we know and find the votes that separate them, to find bills that create a lot of political differentiation.
+We can now look at the votes and ask: which bills set a given group apart from the others? We look at the political labels that we know and find the bills that separate them, to find those that create a lot of political differentiation.
 
-In scRNA-seq settings, we would want to identify marker genes for known-biological types, or find DE genes between treatment and control, or many other possible scenario. 
+In scRNA-seq settings, we would want to identify marker genes for known-biological types, or find DE genes between treatment and control, or many other possible scenario.
 
-In this example, we will ask: What votes distinguish each group from the governing coalition (SER-RRPD-Greens)?
+In this example, we will ask: What bills distinguish each group from the governing coalition (grouping SER, RRPD and Greens)?
 
 
 ```{r identify}
@@ -255,13 +275,15 @@ groups[groups %in%  c("SER", "Greens", "RRPD")] <- "Gov"
 groups <- as.numeric(factor(groups, levels = c("LR", "UDI", "GDR",
                                                "Independent", "Gov")))
 
-contrasts <- getBestFeatures(exprs(Assay), groups, contrastType = "Pairs") %>%
+DE_Bills <- getBestFeatures(exprs(Assay), groups, contrastType = "Pairs") %>%
              filter(str_detect(Contrast, "Cl05")) %>%
              group_by(Contrast) %>%
              arrange(P.Value) %>%
              top_n(-5, P.Value) %>%
              select(Contrast, Feature) %>%
-             mutate(Feature = as.numeric(Feature)) %>%
+             mutate(Feature = as.numeric(Feature))
+
+contrasts <- DE_Bills %>%
              left_join(Assay@featureData@data,
                        by = c("Feature" = "Number")) %>%
              select(-Feature) %>%
@@ -310,7 +332,7 @@ kable(contrasts, escape = F, align = "llll") %>%
 
 ## Identifying clusters with marker-genes
 
-We have seen that the governing coalition cluster in 3 distinct groups. Let us see if we can identify them and find which votes separate them. We assume that the main cluster 2 is the usual governing group and we want to see if we can characterize the smaller clusters. 
+We have seen that the governing coalition cluster in 3 distinct groups. Let us see if we can identify them and find which votes separate them. We assume that the main cluster 2 is the usual governing group and we want to see if we can characterize the smaller clusters.
 
 In scRNA-seq settings, this would be equivalent to looking at clusters and use known-marker genes, gene ontology or pathway analysis to identify them.
 
@@ -327,9 +349,11 @@ contrasts <- getBestFeatures(ce, contrastType = "Pairs") %>%
              left_join(Assay@featureData@data,
                        by = c("Feature" = "Number"))
 
-votes <- as.data.frame(exprs(Assay))
-votes <- votes[featureData(Assay)$Number %in% contrasts$Feature,]
-votes <- as.matrix(votes)
+votes <- exprs(Assay) %>% as.data.frame(.) %>%
+                          mutate(Vote_Number = featureData(Assay)$Number) %>%
+                          filter(Vote_Number %in% contrasts$Feature) %>%
+                          as.matrix(.)
+
 clusters <- ce@clusterMatrix[,1]
 
 results <- data.frame(mean2 = rowMeans(votes[,clusters == 2]),
@@ -344,8 +368,8 @@ results <- data.frame(mean2 = rowMeans(votes[,clusters == 2]),
 contrasts <- data.frame(contrasts$Title, results)
 
 colnames(contrasts) <- c("Title",
-                         cell_spec("Cluster 2", color = "#8DA0CB"),
-                         cell_spec("Cluster 4", color = "#A6D854"))
+                         cell_spec("Cluster 2\nMean (sd)", color = "#8DA0CB"),
+                         cell_spec("Cluster 4\nMean (sd)", color = "#A6D854"))
 
 kable(contrasts, escape = F, align = "lcc") %>%
         kable_styling(full_width = T) %>%
@@ -360,7 +384,7 @@ By now, you should therefore have the tools to do explore scRNA-seq data on your
 
 # Further exploring this dataset
 
-This tutorila only skimmed the analysis of the dataset and there are many other options to explore: looking at voting records accross times, finding which votes draw the most votes, clustering bills, ... The script used to scrap the data can be found on the [Github page](https://github.com/HectorRDB/NationalAssembly) and can be adapted to enquire further.
+This tutorial only skimmed the analysis of the dataset and there are many other options to explore: looking at voting records across times, finding which votes draw the most votes, clustering bills, ... The script used to scrap the data can be found on the [Github page](https://github.com/HectorRDB/NationalAssembly) and can be adapted to inquire further.
 
 # Thanks
 
