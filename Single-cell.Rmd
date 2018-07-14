@@ -229,11 +229,16 @@ pc2 <- round(100 * (pca$sdev[2])^2/sum(pca$sdev^2), digits = 1)
 Clusters <- data.frame(clusters = ce@clusterMatrix[,1],
                        x = pca$x[,1], y = pca$x[,2],
                        group = phenoData(Assay)@data$group1)
-ggplot(Clusters, aes(x = x, y = y, col = factor(clusters))) +
-  geom_point(size = 2, alpha = 0.7) +
+ggplot(Clusters, aes(x = x, y = y, col = factor(clusters),
+                     alpha = clusters != -1)) +
+  geom_point(size = 2) +
   labs(col = "Clusters", x = paste0("PC1 [", pc1, "% of the total variation]"),
        y = paste0("PC2 [", pc2, "% of the toal variation]")) +
-  scale_color_manual(values = brewer.pal(7, "Set2"),
+  guides(alpha = F) + 
+  scale_alpha_manual(values = c(0.5, .8), breaks = c(T, F)) + 
+  # Color from RColor Brewer, modified to map usual political colors
+  scale_color_manual(values = c("#66C2A5", "#8DA0CB", "#E78AC3", "#FC8D62",
+                                "#A6D854", "#FFD92F", "#E5C494"),
                     breaks = c(-1, 1:6),
                     labels = c("Unclustered", paste("Cluster", 1:6))) +
   theme_classic() +
@@ -248,7 +253,8 @@ ggplot(Clusters, aes(x = x, y = y,
   geom_point(size = 2, alpha = 0.7) +
   labs(col = "Clusters", x = paste0("PC1 [", pc1, "% of variation]"),
        y = paste0("PC2 [", pc2, "% of variation]")) +
-  scale_color_manual(values = brewer.pal(7, "Set2")) +
+  scale_color_manual(values = c("#66C2A5", "#8DA0CB", "#E78AC3", "#FC8D62",
+                                "#A6D854", "#FFD92F", "#E5C494")) +
   theme_classic() +
   theme(legend.title = element_text(hjust = 0.7))
 ```
@@ -293,9 +299,9 @@ contrasts <- DE_Bills %>%
 We can see that most laws that distinguish between groups are related to <span style="background:#E9A3C9">social security</span>, <span style="background:#80B1D3">budget</span>, <span style="background:#BEBADA">education</span>, <span style="background:#7FBC41">environment</span> and <span style="background:#FFF2AE">institutions</span>.
 
 ```{r kable, echo = F}
-colnames(contrasts) <- c(cell_spec("LR (right)", color = "#FC8D62"),
+colnames(contrasts) <- c(cell_spec("LR (right)", color = "#8DA0CB"),
                          cell_spec("UDI (center-right)", color = "#E5C494"),
-                         cell_spec("GDR (far-left)", color = "#E78AC3"),
+                         cell_spec("GDR (far-left)", color = "#FC8D62"),
                          cell_spec("Independent", color = "#66C2A5"))
 type_col <- function(bill){
   if(length(bill) > 1){
@@ -365,7 +371,7 @@ results <- data.frame(mean2 = rowMeans(votes[,clusters == 2]),
 contrasts <- data.frame(contrasts$Title, results)
 
 colnames(contrasts) <- c("Title",
-                         cell_spec("Cluster 2\nMean (sd)", color = "#8DA0CB"),
+                         cell_spec("Cluster 2\nMean (sd)", color = "#E78AC3"),
                          cell_spec("Cluster 4\nMean (sd)", color = "#A6D854"))
 
 kable(contrasts, escape = F, align = "lcc") %>%
