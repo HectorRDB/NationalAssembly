@@ -1,7 +1,7 @@
 ---
-title: "A short tutorial to help beginners in biostatistics and genomics understand an usual single-cell RNA-sequencing workflow: looking at the voting behavior at the French parliament"
+title: "ESCAPE: Easy Single-Cell rna-sequencing Analyis through a Political Example"
 author: "Hector Roux de Bézieux"
-date: "July 2018"
+date: "August 2018"
 output:
   # github_document:
   #   toc: true
@@ -33,31 +33,35 @@ _Remarks_:  We use bill as a generic term to cover amendments, confidence votes,
 
 ```{r packages, echo = F, message=F, warning=F}
 .bio_lib <- c("Biobase", "clusterExperiment")
-.cran_lib <- c("knitr", "kableExtra", "tidyverse", "RColorBrewer", "matrixStats")
+.cran_lib <- c("knitr", "kableExtra", "dplyr", "tidyr", "purrr", "ggplot2",
+               "readr", "stringr", "RColorBrewer", "matrixStats")
 sapply(c(.bio_lib, .cran_lib), require, character.only = TRUE)
-opts_chunk$set(fig.pos='!h', out.extra = '', warning = F, message = F,
-               fig.width = 6, fig.height = 4, fig.align='center', echo = T)
+opts_chunk$set(
+  fig.pos = "!h", out.extra = "", warning = F, message = F,
+  fig.width = 6, fig.height = 4, fig.align = "center", echo = T
+)
 rm(.bio_lib, .cran_lib)
 ```
 
 ```{r load}
 # Create the phenodata matrix
 voting_record <- read_csv("data/voting_record.csv")
-MetaData <- voting_record %>% select(circo, dept, name, surname, identifiant, iden,
-                                 group1, group2, group3, NbVote, NbYes, NbNo, NbAbst)
+MetaData <- voting_record %>% select(circo, dept, name, surname, identifiant,
+                                     iden, group1, group2, group3, NbVote,
+                                     NbYes, NbNo, NbAbst)
 voting_record <- voting_record %>% select(-one_of(colnames(MetaData))) %>%
                                    t(.)
 
 # We count abstaining and not voting as the same thing for simplification
-letters_to_num <- function(vote){
-  if(length(vote) > 1){
+letters_to_num <- function(vote) {
+  if (length(vote) > 1) {
     return(sapply(vote, letters_to_num))
   }
-  if(is.na(vote)) return(NA)
-  if(vote == "For") return(1)
-  if(vote == "Against") return(-1)
-  if(vote == "Abstain") return(0)
-  if(vote == "NotVoting") return(0)
+  if (is.na(vote)) return(NA)
+  if (vote == "For") return(1)
+  if (vote == "Against") return(-1)
+  if (vote == "Abstain") return(0)
+  if (vote == "NotVoting") return(0)
 }
 
 voting_record <- apply(voting_record, 2, letters_to_num)
@@ -66,9 +70,11 @@ voting_record <- apply(voting_record, 2, letters_to_num)
 bills <- read_csv("data/votes.csv")
 colnames(voting_record) <- rownames(MetaData) <- MetaData$identifiant
 rownames(voting_record) <- rownames(bills) <- bills$Number
-Assay <- ExpressionSet(assayData = voting_record,
-                       phenoData = AnnotatedDataFrame(MetaData) ,
-                       featureData = AnnotatedDataFrame(bills))
+Assay <- ExpressionSet(
+  assayData = voting_record,
+  phenoData = AnnotatedDataFrame(MetaData),
+  featureData = AnnotatedDataFrame(bills)
+)
 ```
 
 # Data Cleaning
@@ -79,15 +85,17 @@ In scRNA-seq settings, we want to filter the cells with too few reads in total, 
 We therefore filter delegates whose number of voting possibilities is more than 2 SD below the mean (so equal or less to 40).
 
 ```{r filtering cells}
-Nb_Votes <- data.frame(Nb_Votes = colSums(!is.na(exprs(Assay))),
-                       delegate = rownames(phenoData(Assay)))
+Nb_Votes <- data.frame(
+  Nb_Votes = colSums(!is.na(exprs(Assay))),
+  delegate = rownames(phenoData(Assay))
+)
 
 ggplot(Nb_Votes, aes(x = Nb_Votes, fill = Nb_Votes > 40)) +
-      stat_bin(breaks = seq(0, max(Nb_Votes$Nb_Votes), 20)) +
-      labs(x = "Number of bills") +
-      guides(fill = guide_legend(title = "Could have voted\nat least \n40 times")) +
-      scale_fill_manual(values = brewer.pal(3, "Set1")[c(1, 3)],
-                        breaks = c(TRUE, FALSE)) +
+  stat_bin(breaks = seq(0, max(Nb_Votes$Nb_Votes), 20)) +
+  labs(x = "Number of bills") +
+  guides(fill = guide_legend(title = "Could have voted\nat least \n40 times")) +
+  scale_fill_manual(values = brewer.pal(3, "Set1")[c(1, 3)],
+                    breaks = c(TRUE, FALSE)) +
   theme_classic()
 
 # Filter
@@ -102,24 +110,27 @@ E <- exprs(Assay)
 E[is.na(E)] <- 0
 pd <- phenoData(Assay)
 fd <- featureData(Assay)
-colnames(E) <- rownames(pd) <- pd@data$identifiant
-rownames(E) <- rownames(fd) <- fd@data$Number
+colnames(E) <- rownames(pd) <- pData(pd)$identifiant
+rownames(E) <- rownames(fd) <- pData(fd)$Number
 Assay <- ExpressionSet(assayData = E, phenoData = pd, featureData = fd)
 
-Nb_Votes <- data.frame(Nb_Votes = colSums(exprs(Assay) != 0),
-                       delegate = rownames(phenoData(Assay)))
+Nb_Votes <- data.frame(
+  Nb_Votes = colSums(exprs(Assay) != 0),
+  delegate = rownames(phenoData(Assay))
+)
+
 ggplot(Nb_Votes, aes(x = Nb_Votes, fill = Nb_Votes > 38)) +
-      stat_bin(breaks = seq(0, max(Nb_Votes$Nb_Votes), 19)) +
-      labs(x = "Number of votes") +
+  stat_bin(breaks = seq(0, max(Nb_Votes$Nb_Votes), 19)) +
+  labs(x = "Number of votes") +
   guides(fill = guide_legend(title = "Actually voted\nmore than\n38 times")) +
   scale_fill_manual(values = brewer.pal(3, "Set1")[c(1, 3)],
-                        breaks = c(TRUE, FALSE)) +
+                    breaks = c(TRUE, FALSE)) +
   theme_classic()
 ```
 
 Among those, we of course find the president of the parliament, who does not take part in the votes and therefore never voted.
 ```{r}
-sum(exprs(Assay)[,pd@data$name == "Bartolone"])
+sum(exprs(Assay)[, pData(pd)$name == "Bartolone"])
 
 # Filter
 Assay <- Assay[, Nb_Votes$Nb_Votes > 38]
@@ -134,10 +145,13 @@ In our context, we only have 644 votes so the computational goal does not really
 ```{r filtering genes}
 # Compute the number of votes and number of vote casted as a function of j
 Nb_Votes <- rowSums(exprs(Assay) != 0)
-voting_behavior <- data.frame(n_votes_cast = rep(0, nrow(Assay)),
-                             n_votes = rep(0, nrow(Assay)),
-                             j = 1:nrow(Assay))
-for(j in 1:nrow(Assay)){
+voting_behavior <- data.frame(
+  n_votes_cast = rep(0, nrow(Assay)),
+  n_votes = rep(0, nrow(Assay)),
+  j = 1:nrow(Assay)
+)
+
+for (j in 1:nrow(Assay)) {
   Nb_Votes <- Nb_Votes[Nb_Votes >= j]
   voting_behavior$n_votes[j] <- length(Nb_Votes)
   voting_behavior$n_votes_cast[j] <- sum(Nb_Votes)
@@ -147,11 +161,11 @@ voting_behavior <- voting_behavior %>% mutate(n_votes_cast = n_votes_cast /
                                                               max(n_votes_cast),
                                               n_votes = n_votes / max(n_votes))
 
-j_opt <- which.min((voting_behavior$n_votes)^2 +
-                   (1-voting_behavior$n_votes_cast)^2)
+j_opt <- which.min(
+  (voting_behavior$n_votes)^2 + (1 - voting_behavior$n_votes_cast)^2
+)
 
-ggplot(voting_behavior,
-       aes(x = n_votes, y = n_votes_cast, col = j)) +
+ggplot(voting_behavior, aes(x = n_votes, y = n_votes_cast, col = j)) +
   geom_point() + theme_classic() +
   labs(x = "% of bills kept",
        y = "% of casted votes kept",
@@ -161,12 +175,11 @@ ggplot(voting_behavior,
             nudge_x = -.15, nudge_y = .1,
             col = "black") +
   geom_curve(data = voting_behavior %>% filter(j == j_opt), curvature = 0,
-            aes(x = n_votes -.1, xend = n_votes,
-                y = n_votes_cast + .1, yend = n_votes_cast),
-            col = "black", size = .9,
-            arrow = arrow(length = unit(0.03, "npc"))) +
+             aes(x = n_votes - .1, xend = n_votes,
+                 y = n_votes_cast + .1, yend = n_votes_cast),
+             col = "black", size = .9,
+             arrow = arrow(length = unit(0.03, "npc"))) +
   geom_point(col = "red", data = voting_behavior %>% filter(j == j_opt))
-
 ```
 
 We can see a clear inflexion point in the curve, that we pick as the final cutoff value. This is the closest point to the optimal place, which is the top left corner. Our final filtering rule for bills (genes) is therefore "At least `r j_opt` delegates cast at vote."
@@ -207,15 +220,20 @@ ce <- clusterMany(x = se, k = seq(5, 50, 5),
                   clusterFunction = c("pam", "hierarchicalK"),
                   reduceMethod = c("PCA"),
                   ks = 2:20, minSizes = 5,
-                  run=TRUE, transFun = function(x){x})
+                  run = TRUE, transFun = function(x){x})
+
 # Find stable clusters
-ce <- combineMany(ce, minSize = 12, proportion = 0.6,
-                  clusterLabel = "combineMany")
+ce <- combineMany(
+  ce,
+  minSize = 12,
+  proportion = 0.6,
+  clusterLabel = "combineMany"
+)
 
 # Merge clusters
 ce <- makeDendrogram(ce)
-ce <- mergeClusters(ce, mergeMethod="adjP", plotInfo = "adjP",
-                  cutoff = 0.35, clusterLabel = "Clusters", plot = F)
+ce <- mergeClusters(ce, mergeMethod = "adjP", plotInfo = "adjP", cutoff = 0.35,
+                    clusterLabel = "Clusters", plot = F)
 
 ```
 
@@ -226,11 +244,15 @@ After running the algorithm, we find 6 clusters that we can visualize on the fir
 pca <- prcomp(t(exprs(Assay)))
 pc1 <- round(100 * (pca$sdev[1])^2/sum(pca$sdev^2), digits = 1)
 pc2 <- round(100 * (pca$sdev[2])^2/sum(pca$sdev^2), digits = 1)
-Clusters <- data.frame(clusters = ce@clusterMatrix[,1],
-                       x = pca$x[,1], y = pca$x[,2],
-                       group = phenoData(Assay)@data$group1)
-ggplot(Clusters, aes(x = x, y = y, col = factor(clusters),
-                     alpha = clusters != -1)) +
+
+Clusters <- data.frame(
+  clusters = clusterMatrix(ce)[, 1],
+  x = pca$x[, 1], y = pca$x[, 2],
+  group = pData(phenoData(Assay))$group1
+)
+
+ggplot(Clusters,
+       aes(x = x, y = y, col = factor(clusters), alpha = clusters != -1)) +
   geom_point(size = 2) +
   labs(col = "Clusters", x = paste0("PC1 [", pc1, "% of the total variation]"),
        y = paste0("PC2 [", pc2, "% of the toal variation]")) +
@@ -271,7 +293,6 @@ In scRNA-seq settings, we would want to identify marker genes for known-biologic
 
 In this example, we will ask: What bills distinguish each group from the governing coalition (grouping SER, RRPD and Greens)?
 
-
 ```{r identify}
 groups <- phenoData(Assay)$group1
 groups[groups %in%  c("SER", "Greens", "RRPD")] <- "Gov"
@@ -279,15 +300,15 @@ groups <- as.numeric(factor(groups, levels = c("LR", "UDI", "GDR",
                                                "Independent", "Gov")))
 
 DE_Bills <- getBestFeatures(exprs(Assay), groups, contrastType = "Pairs") %>%
-             filter(str_detect(Contrast, "Cl05")) %>%
-             group_by(Contrast) %>%
-             arrange(P.Value) %>%
-             top_n(-5, P.Value) %>%
-             select(Contrast, Feature) %>%
-             mutate(Feature = as.numeric(Feature))
+            filter(str_detect(Contrast, "Cl05")) %>%
+            group_by(Contrast) %>%
+            arrange(P.Value) %>%
+            top_n(-5, P.Value) %>%
+            select(Contrast, Feature) %>%
+            mutate(Feature = as.numeric(Feature))
 
 contrasts <- DE_Bills %>%
-             left_join(Assay@featureData@data,
+             left_join(pData(featureData(Assay)),
                        by = c("Feature" = "Number")) %>%
              select(-Feature) %>%
              group_by(Contrast) %>%
@@ -303,34 +324,35 @@ colnames(contrasts) <- c(cell_spec("LR (right)", color = "#8DA0CB"),
                          cell_spec("UDI (center-right)", color = "#E5C494"),
                          cell_spec("GDR (far-left)", color = "#FC8D62"),
                          cell_spec("Independent", color = "#66C2A5"))
-type_col <- function(bill){
-  if(length(bill) > 1){
+
+type_col <- function(bill) {
+  if (length(bill) > 1) {
     return(sapply(bill, type_col))
   }
-  if(str_detect(bill, "sociale")){
+  if (str_detect(bill, "sociale")) {
     return(cell_spec(bill, background = "#E9A3C9"))
   }
-  if(str_detect(bill, "école")){
+  if (str_detect(bill, "école")) {
     return(cell_spec(bill, background = "#BEBADA"))
   }
-  if(str_detect(bill, "finance")){
+  if (str_detect(bill, "finance")) {
     return(cell_spec(bill, background = "#80B1D3"))
   }
-  if(str_detect(bill, "alimentation")){
+  if (str_detect(bill, "alimentation")) {
     return(cell_spec(bill, background = "#7FBC41"))
   }
-  if(str_detect(bill, "organique") | str_detect(bill, "censure")){
+  if (str_detect(bill, "organique") | str_detect(bill, "censure")) {
     return(cell_spec(bill, background = "#FFF2AE"))
   }
 }
 contrasts <- contrasts %>% map_df(type_col)
-kable(contrasts, escape = F, align = "llll") %>%
-        kable_styling(full_width = T) %>%
-        column_spec(1, width = "60em") %>%
-        column_spec(2, width = "50em") %>%
-        column_spec(3, width = "40em")  %>%
-        column_spec(4, width = "50em") %>%
-        row_spec(4, hline_after = T)
+
+kable(contrasts, escape = F, align = "llll") %>% kable_styling(full_width = T) %>%
+                                              column_spec(1, width = "60em") %>%
+                                              column_spec(2, width = "50em") %>%
+                                              column_spec(3, width = "40em") %>%
+                                              column_spec(4, width = "50em") %>%
+                                              row_spec(4, hline_after = T)
 ```
 
 ## Identifying clusters with marker-genes
@@ -349,7 +371,7 @@ contrasts <- getBestFeatures(ce, contrastType = "Pairs") %>%
              top_n(-5, P.Value) %>%
              select(Contrast, Feature) %>%
              mutate(Feature = as.numeric(Feature)) %>%
-             left_join(Assay@featureData@data,
+             left_join(pData(featureData(Assay)),
                        by = c("Feature" = "Number"))
 
 votes <- exprs(Assay) %>% as.data.frame(.) %>%
@@ -357,12 +379,13 @@ votes <- exprs(Assay) %>% as.data.frame(.) %>%
                           filter(Vote_Number %in% contrasts$Feature) %>%
                           as.matrix(.)
 
-clusters <- ce@clusterMatrix[,1]
+clusters <- clusterMatrix(ce)[,1]
 
 results <- data.frame(mean2 = rowMeans(votes[,clusters == 2]),
                       sd2 = rowSds(votes[,clusters == 2]),
                       mean4 = rowMeans(votes[,clusters == 4]),
-                      sd4 = rowSds(votes[,clusters == 4])) %>%
+                      sd4 = rowSds(votes[,clusters == 4])
+                      ) %>%
                     map_df(function(x) round(x, digits = 2)) %>%
                     mutate(cluster2 = paste(mean2, " (", sd2, ")"),
                            cluster4 = paste(mean4, " (", sd4, ")")) %>%
