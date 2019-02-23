@@ -2,6 +2,9 @@
 title: "ESCAPE: Easy Single-Cell rna-sequencing Analyis through a Political Example"
 author: "Hector Roux de Bézieux"
 date: "August 2018"
+knit: (function(inputFile, encoding) {
+      rmarkdown::render(inputFile, encoding = encoding,
+                  output_file = file.path(dirname(inputFile), 'index.html')) })
 output:
   # github_document:
   #   toc: true
@@ -32,7 +35,7 @@ _Remarks_:  We use bill as a generic term to cover amendments, confidence votes,
 
 
 ```{r packages, echo = F, message=F, warning=F}
-.bio_lib <- c("Biobase", "clusterExperiment")
+.bio_lib <- c("SingleCellExperiment", "clusterExperiment")
 .cran_lib <- c("knitr", "kableExtra", "dplyr", "tidyr", "purrr", "ggplot2",
                "readr", "stringr", "RColorBrewer", "matrixStats")
 sapply(c(.bio_lib, .cran_lib), require, character.only = TRUE)
@@ -66,32 +69,30 @@ letters_to_num <- function(vote) {
 
 voting_record <- apply(voting_record, 2, letters_to_num)
 
-# Build the ExpressionSet object
+# Build the SingleCellExperiment Object
+
 bills <- read_csv("data/votes.csv")
 colnames(voting_record) <- rownames(MetaData) <- MetaData$identifiant
 rownames(voting_record) <- rownames(bills) <- bills$Number
-Assay <- ExpressionSet(
-  assayData = voting_record,
-  phenoData = AnnotatedDataFrame(MetaData),
-  featureData = AnnotatedDataFrame(bills)
-)
+Sce <- SingleCellExperiment(assays = list(counts = voting_record),
+                              colData = MetaData,
+                              rowData = bills)
 ```
 
 # Data Cleaning
 ## Filtering the cells (delegate)
 
-In scRNA-seq settings, we want to filter the cells with too few reads in total, or with too many reads of poor quality (that do not match to the genome of reference). Here, we instead filter the delegates with too few voting possibilities. This may happen either because a delegate had to leave office before the end of the session, or was appointed to the government, or replaced a delegate in the previous cases.
+In scRNA-seq settings, we want to filter the cells with too few reads in total, or with too many reads of poor quality. Here, we instead filter the delegates with too few voting possibilities. This may happen either because a delegate had to leave office before the end of the session, or was appointed to the government, or replaced a delegate in the previous cases.
 
 We therefore filter delegates whose number of voting possibilities is more than 2 SD below the mean (so equal or less to 40).
 
 ```{r filtering cells}
-Nb_Votes <- data.frame(
-  Nb_Votes = colSums(!is.na(exprs(Assay))),
-  delegate = rownames(phenoData(Assay))
-)
+# Count how many votes happen during the delegate mandate
+Sce$Nb_Votes <- colSums(!is.na(counts(Sce)))
 
-ggplot(Nb_Votes, aes(x = Nb_Votes, fill = Nb_Votes > 40)) +
-  stat_bin(breaks = seq(0, max(Nb_Votes$Nb_Votes), 20)) +
+ggplot(colData(Sce) %>% as.data.frame(),
+       aes(x = Nb_Votes, fill = Nb_Votes > 40)) +
+  stat_bin(breaks = seq(0, max(Sce$Nb_Votes), 20)) +
   labs(x = "Number of bills") +
   guides(fill = guide_legend(title = "Could have voted\nat least \n40 times")) +
   scale_fill_manual(values = brewer.pal(3, "Set1")[c(1, 3)],
@@ -99,28 +100,22 @@ ggplot(Nb_Votes, aes(x = Nb_Votes, fill = Nb_Votes > 40)) +
   theme_classic()
 
 # Filter
-Assay <- Assay[, Nb_Votes$Nb_Votes > 40]
+Sce <- Sce[, Sce$Nb_Votes > 40]
 ```
 
 We then simplify the data by replacing NAs by 0 (as if they were abstentions). We can then check whether some delegates rarely voted. Again, we remove those whose actual number of votes is more than 2 SD below the mean number of votes (so delegates who actually voted less than 38 votes).
 
 ```{r change NA to zeros}
 # Remplace NAs by zeros
-E <- exprs(Assay)
-E[is.na(E)] <- 0
-pd <- phenoData(Assay)
-fd <- featureData(Assay)
-colnames(E) <- rownames(pd) <- pData(pd)$identifiant
-rownames(E) <- rownames(fd) <- pData(fd)$Number
-Assay <- ExpressionSet(assayData = E, phenoData = pd, featureData = fd)
+counts <- counts(Sce)
+counts[is.na(counts)] <- 0
+assays(Sce)$counts <- counts
 
-Nb_Votes <- data.frame(
-  Nb_Votes = colSums(exprs(Assay) != 0),
-  delegate = rownames(phenoData(Assay))
-)
+Sce$Nb_Votings <- colSums(counts(Sce) != 0)
 
-ggplot(Nb_Votes, aes(x = Nb_Votes, fill = Nb_Votes > 38)) +
-  stat_bin(breaks = seq(0, max(Nb_Votes$Nb_Votes), 19)) +
+ggplot(colData(Sce) %>% as.data.frame(),
+       aes(x = Nb_Votings, fill = Nb_Votings > 38)) +
+  stat_bin(breaks = seq(0, max(Sce$Nb_Votings), 19)) +
   labs(x = "Number of votes") +
   guides(fill = guide_legend(title = "Actually voted\nmore than\n38 times")) +
   scale_fill_manual(values = brewer.pal(3, "Set1")[c(1, 3)],
@@ -130,10 +125,10 @@ ggplot(Nb_Votes, aes(x = Nb_Votes, fill = Nb_Votes > 38)) +
 
 Among those, we of course find the president of the parliament, who does not take part in the votes and therefore never voted.
 ```{r}
-sum(exprs(Assay)[, pData(pd)$name == "Bartolone"])
+sum(counts(Sce)[, Sce$name == "Bartolone"])
 
 # Filter
-Assay <- Assay[, Nb_Votes$Nb_Votes > 38]
+Sce <- Sce[, Sce$Nb_Votings > 38]
 ```
 
 ## Filtering the genes (votes)
@@ -143,23 +138,22 @@ In scRNA-seq settings, we want to filter out genes that are expressed in a small
 In our context, we only have 644 votes so the computational goal does not really hold. But we can filter out votes where many delegates did not vote. Those are probably non-political technical votes. We therefore use the filter rules "at least $j$ delegates cast a vote on the bill".
 
 ```{r filtering genes}
-# Compute the number of votes and number of vote casted as a function of j
-Nb_Votes <- rowSums(exprs(Assay) != 0)
-voting_behavior <- data.frame(
-  n_votes_cast = rep(0, nrow(Assay)),
-  n_votes = rep(0, nrow(Assay)),
-  j = 1:nrow(Assay)
-)
+# Compute the number of votes and number of votes casted as a function of j
+Nb_Voters <- rowSums(counts(Sce) != 0)
+voting_behavior <- data.frame(n_votes_cast = rep(0, nrow(Sce)),
+                              n_votes = rep(0, nrow(Sce)),
+                              j = 1:nrow(Sce)
+                              )
 
-for (j in 1:nrow(Assay)) {
-  Nb_Votes <- Nb_Votes[Nb_Votes >= j]
-  voting_behavior$n_votes[j] <- length(Nb_Votes)
-  voting_behavior$n_votes_cast[j] <- sum(Nb_Votes)
+for (j in 1:nrow(Sce)) {
+  Nb_Voters <- Nb_Voters[Nb_Voters >= j]
+  voting_behavior$n_votes[j] <- length(Nb_Voters)
+  voting_behavior$n_votes_cast[j] <- sum(Nb_Voters)
 }
 
-voting_behavior <- voting_behavior %>% mutate(n_votes_cast = n_votes_cast /
-                                                              max(n_votes_cast),
-                                              n_votes = n_votes / max(n_votes))
+voting_behavior <- voting_behavior %>%
+                    mutate(n_votes_cast = n_votes_cast / max(n_votes_cast),
+                           n_votes = n_votes / max(n_votes))
 
 j_opt <- which.min(
   (voting_behavior$n_votes)^2 + (1 - voting_behavior$n_votes_cast)^2
@@ -186,11 +180,11 @@ We can see a clear inflexion point in the curve, that we pick as the final cutof
 
 ```{r}
 # Filter
-Assay <- Assay[rowSums(exprs(Assay) != 0) >= j_opt, ]
+Sce <- Sce[rowSums(counts(Sce) != 0) >= j_opt, ]
 ```
 
 ```{r clean, echo=F}
-rm(MetaData, Nb_Votes, voting_behavior, bills, voting_record, E, fd, pd, j, j_opt)
+rm(MetaData, Nb_Voters, voting_behavior, bills, voting_record, j, j_opt)
 ```
 
 # Normalization and correcting for zero inflation
@@ -212,28 +206,22 @@ In our example, let us imagine for a moment that we do not know the political gr
 We use a broad clustering framework based on the *ClusterExperiment* package, that test many clustering algorithms and use all the results to find stable clusters. As a result, some cells (delegates) are left unclustered.
 
 ```{r clustering}
-# Build the object
-se <- SummarizedExperiment(assays = exprs(Assay))
-
 # Run all clustering methods
-ce <- clusterMany(x = se, k = seq(5, 50, 5),
+ce <- clusterMany(x = Sce, k = seq(5, 50, 5),
                   clusterFunction = c("pam", "hierarchicalK"),
                   reduceMethod = c("PCA"),
-                  ks = 2:20, minSizes = 5,
+                  ks = 2:15, minSizes = 5,
                   run = TRUE, transFun = function(x){x})
 
 # Find stable clusters
-ce <- combineMany(
-  ce,
-  minSize = 12,
-  proportion = 0.6,
-  clusterLabel = "combineMany"
-)
+ce <- makeConsensus(ce, minSize = 10, proportion = 0.7,
+                    clusterLabel = "combineMany"
+                    )
 
 # Merge clusters
 ce <- makeDendrogram(ce)
-ce <- mergeClusters(ce, mergeMethod = "adjP", plotInfo = "adjP", cutoff = 0.35,
-                    clusterLabel = "Clusters", plot = F)
+ce <- mergeClusters(ce, mergeMethod = "adjP", plotInfo = "adjP", cutoff = 0.3,
+                     clusterLabel = "Clusters", plot = F, DEMethod = "limma")
 
 ```
 
@@ -241,15 +229,14 @@ After running the algorithm, we find 6 clusters that we can visualize on the fir
 
 ```{r plot}
 # Plot clusters
-pca <- prcomp(t(exprs(Assay)))
+pca <- prcomp(t(counts(Sce)))
 pc1 <- round(100 * (pca$sdev[1])^2/sum(pca$sdev^2), digits = 1)
 pc2 <- round(100 * (pca$sdev[2])^2/sum(pca$sdev^2), digits = 1)
 
-Clusters <- data.frame(
-  clusters = clusterMatrix(ce)[, 1],
-  x = pca$x[, 1], y = pca$x[, 2],
-  group = pData(phenoData(Assay))$group1
-)
+Clusters <- data.frame(clusters = primaryCluster(ce),
+                       x = pca$x[, 1], y = pca$x[, 2],
+                       group = Sce$group1
+                       )
 
 ggplot(Clusters,
        aes(x = x, y = y, col = factor(clusters), alpha = clusters != -1)) +
@@ -259,8 +246,8 @@ ggplot(Clusters,
   guides(alpha = F) + 
   scale_alpha_manual(values = c(0.5, .8), breaks = c(T, F)) + 
   # Color from RColor Brewer, modified to map usual political colors
-  scale_color_manual(values = c("#66C2A5", "#8DA0CB", "#E78AC3", "#FC8D62",
-                                "#A6D854", "#FFD92F", "#E5C494"),
+  scale_color_manual(values = c("#66C2A5", "#8DA0CB", "#FFD92F", "#E5C494",
+                                "#A6D854", "#E78AC3", "#FC8D62"),
                     breaks = c(-1, 1:6),
                     labels = c("Unclustered", paste("Cluster", 1:6))) +
   theme_classic() +
@@ -270,13 +257,13 @@ ggplot(Clusters,
 We can see how those clusters compare with the actual political groups
 ```{r plot groups}
 ggplot(Clusters, aes(x = x, y = y,
-       col = factor(group, levels = c("Independent", "LR", "SER", "GDR",
-                                      "Greens", "RRPD", "UDI")))) +
+       col = factor(group, levels = c("Independent", "LR", "RRPD", "UDI",
+                                      "Greens", "SER","GDR")))) +
   geom_point(size = 2, alpha = 0.7) +
   labs(col = "Clusters", x = paste0("PC1 [", pc1, "% of variation]"),
        y = paste0("PC2 [", pc2, "% of variation]")) +
-  scale_color_manual(values = c("#66C2A5", "#8DA0CB", "#E78AC3", "#FC8D62",
-                                "#A6D854", "#FFD92F", "#E5C494")) +
+  scale_color_manual(values = c("#66C2A5", "#8DA0CB", "#FFD92F", "#E5C494",
+                                "#A6D854", "#E78AC3", "#FC8D62")) +
   theme_classic() +
   theme(legend.title = element_text(hjust = 0.7))
 ```
@@ -294,23 +281,23 @@ In scRNA-seq settings, we would want to identify marker genes for known-biologic
 In this example, we will ask: What bills distinguish each group from the governing coalition (grouping SER, RRPD and Greens)?
 
 ```{r identify}
-groups <- phenoData(Assay)$group1
+groups <- Sce$group1
 groups[groups %in%  c("SER", "Greens", "RRPD")] <- "Gov"
 groups <- as.numeric(factor(groups, levels = c("LR", "UDI", "GDR",
                                                "Independent", "Gov")))
-
-DE_Bills <- getBestFeatures(exprs(Assay), groups, contrastType = "Pairs") %>%
-            filter(str_detect(Contrast, "Cl05")) %>%
-            group_by(Contrast) %>%
-            arrange(P.Value) %>%
-            top_n(-5, P.Value) %>%
-            select(Contrast, Feature) %>%
-            mutate(Feature = as.numeric(Feature))
+# We add 1 to all counts since Limma blocks negative counts
+DE_Bills <- getBestFeatures(counts(Sce), groups, contrastType = "Pairs",
+                            DEMethod = "limma") %>%
+                    filter(str_detect(Contrast, "Cl05")) %>%
+                    group_by(Contrast) %>%
+                    arrange(P.Value) %>%
+                    top_n(-5, P.Value) %>%
+                    select(Contrast, IndexInOriginal) %>%
+                    mutate(IndexInOriginal = as.numeric(IndexInOriginal))
 
 contrasts <- DE_Bills %>%
-             left_join(pData(featureData(Assay)),
-                       by = c("Feature" = "Number")) %>%
-             select(-Feature) %>%
+             mutate(Title = rowData(Sce)[IndexInOriginal, "Title"]) %>%
+             select(-IndexInOriginal) %>%
              group_by(Contrast) %>%
              mutate(groupid = row_number()) %>%
              spread(Contrast, Title) %>%
@@ -361,41 +348,41 @@ We have seen that the governing coalition cluster in 3 distinct groups. Let us s
 
 In scRNA-seq settings, this would be equivalent to looking at clusters and use known-marker genes, gene ontology or pathway analysis to identify them.
 
-
-We look at the 5 tops genes that differentiate clusters 2 and 4 and we look at the mean vote. For all those votes, nearly everyone in cluster 4 abstained and most in cluster 2 voted for. This is because members of cluster 4 either where in the government at some point, or replaced a delegate that was called into the government. Therefore, they "abstained"" for many votes (because they were not members of parliament at the time).
+We look at the 5 tops genes that differentiate clusters 4 and 6 and we look at the mean vote. For all those votes, nearly everyone in cluster 4 abstained while most of those in cluster 5 voted for. This is because members of cluster 4 either where in the government at some point, or replaced a delegate that was called into the government. Therefore, they "abstained" for many votes (because they were not members of parliament at the time).
 
 ```{r}
-contrasts <- getBestFeatures(ce, contrastType = "Pairs") %>%
-             filter(Contrast == "Cl02-Cl04") %>%
+contrasts <- getBestFeatures(ce, contrastType = "Pairs",
+                             DEMethod = "limma") %>%
+             filter(Contrast == "Cl04-Cl05") %>%
              arrange(P.Value) %>%
              top_n(-5, P.Value) %>%
-             select(Contrast, Feature) %>%
-             mutate(Feature = as.numeric(Feature)) %>%
-             left_join(pData(featureData(Assay)),
-                       by = c("Feature" = "Number"))
+             select(Contrast, IndexInOriginal) %>%
+             mutate(IndexInOriginal = as.numeric(IndexInOriginal)) %>%
+             mutate(Title = rowData(Sce)[IndexInOriginal, "Title"])
 
-votes <- exprs(Assay) %>% as.data.frame(.) %>%
-                          mutate(Vote_Number = featureData(Assay)$Number) %>%
-                          filter(Vote_Number %in% contrasts$Feature) %>%
-                          as.matrix(.)
+votes <- counts(Sce)[contrasts$IndexInOriginal, ] %>%
+                as.data.frame() %>%
+                mutate(Vote_Number = Sce$Number) %>%
+                
+                as.matrix(.)
 
-clusters <- clusterMatrix(ce)[,1]
+clusters <- primaryCluster(ce)
 
-results <- data.frame(mean2 = rowMeans(votes[,clusters == 2]),
-                      sd2 = rowSds(votes[,clusters == 2]),
-                      mean4 = rowMeans(votes[,clusters == 4]),
-                      sd4 = rowSds(votes[,clusters == 4])
+results <- data.frame(mean4 = rowMeans(votes[,clusters == 4]),
+                      sd4 = rowSds(votes[,clusters == 4]),
+                      mean5 = rowMeans(votes[,clusters == 5]),
+                      sd5 = rowSds(votes[,clusters == 5])
                       ) %>%
                     map_df(function(x) round(x, digits = 2)) %>%
-                    mutate(cluster2 = paste(mean2, " (", sd2, ")"),
-                           cluster4 = paste(mean4, " (", sd4, ")")) %>%
-                    select(cluster2, cluster4)
+                    mutate(cluster4 = paste(mean4, " (", sd4, ")"),
+                           cluster5 = paste(mean5, " (", sd5, ")")) %>%
+                    select(cluster4, cluster5)
 
 contrasts <- data.frame(contrasts$Title, results)
 
 colnames(contrasts) <- c("Title",
-                         cell_spec("Cluster 2\nMean (sd)", color = "#E78AC3"),
-                         cell_spec("Cluster 4\nMean (sd)", color = "#A6D854"))
+                         cell_spec("Cluster 4\nMean (sd)", color = "#A6D854"),
+                         cell_spec("Cluster 5\nMean (sd)", color = "#E78AC3"))
 
 kable(contrasts, escape = F, align = "lcc") %>%
         kable_styling(full_width = T) %>%
@@ -406,7 +393,7 @@ kable(contrasts, escape = F, align = "lcc") %>%
 
 # Conclusion
 
-By now, you should therefore have the tools to do explore scRNA-seq data on your own. Many other tutorials, either general or focused on one package, exist. A good place to start to find them, or get access to some datasets, is the [website of the bioconductor project](https://bioconductor.org/).
+By now, you should therefore have the tools to do explore scRNA-seq data on your own. Many other tutorials, either general or focused on one package, exist. A good place to start and find them, or to get access to some datasets, is the [website of the bioconductor project](https://bioconductor.org/). I especially recommand the book of the [Bioconductor Workshop](https://bioconductor.github.io/BiocWorkshops/).
 
 # Further exploring this dataset
 
@@ -414,7 +401,7 @@ This tutorial only skimmed the analysis of the dataset and there are many other 
 
 # Thanks
 
-Special thanks to [Vincent Viers](https://github.com/vviers) for the initial inspiration of this project.  The code used for scraping the data is based on the blog post https://freakonometrics.hypotheses.org/50973.
+Special thanks to [Vincent Viers](https://vviers.github.io) for the initial inspiration of this project.  The code used for scraping the data is based on the blog post https://freakonometrics.hypotheses.org/50973.
 
 # R session
 
