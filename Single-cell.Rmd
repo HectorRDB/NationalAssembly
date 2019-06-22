@@ -1,5 +1,5 @@
 ---
-title: "ESCAPE: Easy Single-Cell rna-sequencing Analyis through a Political Example"
+title: "ESCAPE: Easy Single-Cell rna-sequencing Analysis through a Political Example"
 author: "Hector Roux de Bézieux"
 date: "August 2018"
 knit: (function(inputFile, encoding) {
@@ -27,7 +27,7 @@ However, the usual framework might seem a little daunting for beginners and, whi
 
 Our dataset is the voting record of the French delegates of the $14^{th}$ legislature, going from May 2012 to May 2017. Delegates are characterized by their names and surnames, their department and circonscription, their political group. For each of the 644 occasions of votes (which can be bills, amendments, choosing the prime minister, ...), we also have the voting behavior of each delegate (voted yes, no, abstain or did not took part in the vote) and the reason of the vote. We are interested in investigating the link between voting behavior and political affiliations.
 
-# Loading the data and building an ExpressionSet object
+# Loading the data and building a __SingleCellExperiment__ object
 
 The usual scRNA-seq data is a matrix of $J$ genes by $n$ biological cells. Each cell of the matrix represents the number of copies of messenger RNA of a given gene in a given biological cell.This number serves as a proxy for the number of proteins from this mRNA and therefore represent how active a gene is in a given cell. We also eventually have some information about cells.
 
@@ -163,7 +163,7 @@ j_opt <- which.min(
 ggplot(voting_behavior, aes(x = n_votes, y = n_votes_cast, col = j)) +
   geom_point() + theme_classic() +
   labs(x = "% of bills kept",
-       y = "% of casted votes kept",
+       y = "% of caste votes kept",
        col = "Cutoff value") +
   geom_label(label = "Final\nCutoff",
             data = voting_behavior %>% filter(j == j_opt),
@@ -194,7 +194,7 @@ In scRNA-seq settings, after filtering comes a normalization step. scRNA-sequenc
 
 This is also the time to adjust for dropouts. Indeed, because of technical difficulties, some genes may seem non-expressed (i.e their count is zero) while they in fact are. Zero-inflation methods try to adjust for that by categorizing the zeros into real and dropouts and, in the case of dropouts, try to input the missing values.
 
-To better understand dropouts, let us go back to our example. In our voting record matrix, zeros could be either abstention (i.e real zeros) and not being able to votes (i.e dropouts, we do not know what the delegate would have done if he could have voted). Adjusting for dropouts means inputing which zeros are true zeros (true abstentions) and then, for dropouts, estimating the real value. Since the techniques that would be used to correct for "dropouts" in our political example would be different to biostatistical techniques used in scRNA-seq settings, we will not cover it here.
+To better understand dropouts, let us go back to our example. In our voting record matrix, zeros could be either abstention (i.e real zeros) and not being able to votes (i.e dropouts, we do not know what the delegate would have done if he could have voted). Adjusting for dropouts means imputing which zeros are true zeros (true abstentions) and then, for dropouts, estimating the real value. Since the techniques that would be used to correct for "dropouts" in our political example would be different to biostatistical techniques used in scRNA-seq settings, we will not cover it here.
 
 # Recovering / discovering biological types
 
@@ -243,7 +243,7 @@ ggplot(Clusters,
        aes(x = x, y = y, col = factor(clusters), alpha = clusters != -1)) +
   geom_point(size = 2) +
   labs(col = "Clusters", x = paste0("PC1 [", pc1, "% of the total variation]"),
-       y = paste0("PC2 [", pc2, "% of the toal variation]")) +
+       y = paste0("PC2 [", pc2, "% of the total variation]")) +
   guides(alpha = F) + 
   scale_alpha_manual(values = c(0.5, .8), breaks = c(T, F)) + 
   # Color from RColor Brewer, modified to map usual political colors
@@ -345,11 +345,11 @@ kable(contrasts, escape = F, align = "llll") %>% kable_styling(full_width = T) %
 
 ## Identifying clusters with marker-genes
 
-We have seen that the governing coalition cluster in 3 distinct groups. Let us see if we can identify them and find which votes separate them. We assume that the main cluster 2 is the usual governing group and we want to see if we can characterize the smaller clusters.
+We have seen that the governing coalition cluster in 3 distinct groups. Let us see if we can identify them and find which votes separate them. We assume that the main cluster 25 is the usual governing group and we want to see if we can characterize the smaller clusters.
 
 In scRNA-seq settings, this would be equivalent to looking at clusters and use known-marker genes, gene ontology or pathway analysis to identify them.
 
-We look at the 5 tops genes that differentiate clusters 4 and 6 and we look at the mean vote. For all those votes, nearly everyone in cluster 4 abstained while most of those in cluster 5 voted for. This is because members of cluster 4 either where in the government at some point, or replaced a delegate that was called into the government. Therefore, they "abstained" for many votes (because they were not members of parliament at the time).
+We look at the 5 tops genes that differentiate clusters 4 and 5 and we look at the mean vote. For all those votes, nearly everyone in cluster 4 abstained while most of those in cluster 5 voted for. This is because members of cluster 4 either where in the government at some point, or replaced a delegate that was called into the government. Therefore, they "abstained" for many votes (because they were not members of parliament at the time).
 
 ```{r}
 contrasts <- getBestFeatures(ce, contrastType = "Pairs",
@@ -394,11 +394,11 @@ kable(contrasts, escape = F, align = "lcc") %>%
 
 # Conclusion
 
-By now, you should therefore have the tools to do explore scRNA-seq data on your own. Many other tutorials, either general or focused on one package, exist. A good place to start and find them, or to get access to some datasets, is the [website of the bioconductor project](https://bioconductor.org/). I especially recommand the book of the [Bioconductor Workshop](https://bioconductor.github.io/BiocWorkshops/).
+By now, you should therefore have the tools to do explore scRNA-seq data on your own. Many other tutorials, either general or focused on one package, exist. A good place to start and find them, or to get access to some datasets, is the [website of the bioconductor project](https://bioconductor.org/). I especially recommend the book of the [Bioconductor Workshop](https://bioconductor.github.io/BiocWorkshops/).
 
 # Further exploring this dataset
 
-This tutorial only skimmed the analysis of the dataset and there are many other options to explore: looking at voting records across times, finding which votes draw the most votes, clustering bills, ... The script used to scrap the data can be found on the [Github page](https://github.com/HectorRDB/NationalAssembly) and can be adapted to inquire further.
+This tutorial only skimmed the analysis of the dataset and there are many other options to explore: looking at voting records across times, finding which bills drew the most votes, clustering bills, ... The script used to scrap the data can be found on the [Github page](https://github.com/HectorRDB/NationalAssembly) and can be adapted for further enquiries.
 
 # Thanks
 
